@@ -71,8 +71,6 @@ export default function PlayerPicker() {
 
   // Paramètres (→ démarrent à 1 comme demandé)
   const [numTeams, setNumTeams] = useState<number>(1);
-  const [teamSize, setTeamSize] = useState<number>(1);
-  const [allowUneven, setAllowUneven] = useState<boolean>(true);
 
 
   // Résultat
@@ -105,8 +103,6 @@ export default function PlayerPicker() {
       setError(null);
       const result = buildBalancedMixedTeams(chosen, {
         numTeams,
-        teamSize,
-        allowUnevenLastTeam: allowUneven,
         femaleFirst: true,
       });
       setTeams(result);
@@ -130,9 +126,6 @@ export default function PlayerPicker() {
                 <div>
                     Équipes: <b className="text-neutral-100">{numTeams}</b>
                 </div>
-                <div>
-                    Taille: <b className="text-neutral-100">{teamSize}</b>
-                </div>
             </div>
         </header>
 
@@ -155,15 +148,6 @@ export default function PlayerPicker() {
               Tout décocher
             </button>
           </div>
-          <label className="flex items-center gap-2 text-sm text-neutral-300">
-            <input
-              type="checkbox"
-              className="h-4 w-4 rounded border-neutral-700 bg-neutral-800"
-              checked={allowUneven}
-              onChange={(e) => setAllowUneven(e.target.checked)}
-            />
-            Autoriser une équipe incomplète
-          </label>
         </div>
 
         {/* Paramètres tournoi (avec steppers - / +) */}
@@ -173,13 +157,6 @@ export default function PlayerPicker() {
             label="Nombre d’équipes"
             value={numTeams}
             onChange={setNumTeams}
-            min={1}
-            max={99}
-          />
-          <StepperInput
-            label="Joueurs par équipe"
-            value={teamSize}
-            onChange={setTeamSize}
             min={1}
             max={99}
           />

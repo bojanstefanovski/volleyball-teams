@@ -7,6 +7,7 @@
  * - Poids par catégorie (weights)
  * - Mixité: répartition des femmes prioritaire + swaps à genre égal
  * - Front helpers pour utiliser un tableau JSON directement
+ * - ➜ VERSION: ne prend QUE numTeams (répartition auto des tailles d'équipes)
  */
 
 // ---------------- Types ----------------
@@ -47,24 +48,22 @@ export interface Team {
 
 export interface BuildOptions {
   numTeams?: number;
-  teamSize?: number;
   weights?: WeightsTuple;        // ordre: [service, reception, passing, smash, defence]
   lambdaCat?: number;
   lambdaMood?: number;
   moodWeight?: number;
   swapIterations?: number;
   femaleFirst?: boolean;
-  allowUnevenLastTeam?: boolean;
 }
 
 // ---------------- Utils ----------------
 // volley: Service, Réception, Passe, Attaque (smash), Défense
-export const DEFAULT_CATEGORIES = ["service", "reception", "passing", "attack", "defence"]
+export const DEFAULT_CATEGORIES = ["service", "reception", "passing", "attack", "defence"];
 export const DEFAULT_WEIGHTS: WeightsTuple = [2, 3, 4, 4, 2];
 
-function toStrength(note: number, scale = 10, lowerIsBetter = true): number {
+function toStrength(note: number, scale = 10): number {
   if (note < 1 || note > scale) throw new Error(`note doit être 1..${scale}`);
-  return lowerIsBetter ? scale + 1 - note : note;
+  return note; // 10 = meilleur, 1 = moins bon
 }
 
 function moodNorm(mood: number): number {
@@ -155,26 +154,25 @@ export function computeCost(
 export function buildBalancedMixedTeams(players: Player[], opts: BuildOptions = {}): Team[] {
   const {
     numTeams,
-    teamSize,
     weights = DEFAULT_WEIGHTS,
     lambdaCat = 0.3,
     lambdaMood = 0.3,
     moodWeight = 0.15,
     swapIterations = 5000,
     femaleFirst = true,
-    allowUnevenLastTeam = false,
   } = opts;
 
-  if (!numTeams && !teamSize) throw new Error("Spécifie numTeams OU teamSize");
+  if (!numTeams) throw new Error("Spécifie numTeams (le nombre d'équipes).");
+
   const N = players.length;
-  const K = numTeams ?? Math.max(2, Math.round(N / (teamSize ?? 2)));
-  const S = teamSize ?? Math.ceil(N / K);
+  const K = Math.max(2, numTeams);
 
-  if (!allowUnevenLastTeam && K * S !== N) {
-    throw new Error(`Taille non divisible (N=${N}, K=${K}, S=${S}). Mets allowUnevenLastTeam:true ou ajuste.`);
-  }
+  // Répartition automatique des tailles d'équipe (diffèrent d'au plus 1)
+  const base = Math.floor(N / K);
+  const rem = N % K;
+  const targetSizes = Array.from({ length: K }, (_, i) => base + (i < rem ? 1 : 0));
 
-  // Validation
+  // Validation des données joueur
   for (const pl of players) {
     (["service", "reception", "passing", "smash", "defence"] as (keyof Categories)[]).forEach((kCat) => {
       const v = pl.categories[kCat];
@@ -195,28 +193,28 @@ export function buildBalancedMixedTeams(players: Player[], opts: BuildOptions = 
   // Cibles femmes
   const targetWomen: number[] = Array<number>(K).fill(0);
   if (femaleFirst && females.length > 0) {
-    const base = Math.floor(females.length / K);
-    const rem = females.length % K;
-    for (let i = 0; i < K; i++) targetWomen[i] = base + (i < rem ? 1 : 0);
+    const baseF = Math.floor(females.length / K);
+    const remF = females.length % K;
+    for (let i = 0; i < K; i++) targetWomen[i] = baseF + (i < remF ? 1 : 0);
   }
 
   const teams: Team[] = Array.from({ length: K }, () => emptyTeam(5));
 
-  // Placer femmes (fortes -> faibles)
+  // Placer femmes (fortes -> faibles) en respectant targetSizes[i]
   if (femaleFirst) {
     females.sort((a, b) => b.pv.total - a.pv.total);
     for (const f of females) {
       const candidates: { i: number; total: number }[] = [];
       for (let i = 0; i < K; i++) {
         const t = teams[i];
-        if (t.members.length < S && t.women < targetWomen[i]) {
+        if (t.members.length < targetSizes[i] && t.women < targetWomen[i]) {
           candidates.push({ i, total: t.total });
         }
       }
       if (candidates.length === 0) {
         for (let i = 0; i < K; i++) {
           const t = teams[i];
-          if (t.members.length < S) candidates.push({ i, total: t.total });
+          if (t.members.length < targetSizes[i]) candidates.push({ i, total: t.total });
         }
       }
       candidates.sort((a, b) => a.total - b.total);
@@ -224,15 +222,16 @@ export function buildBalancedMixedTeams(players: Player[], opts: BuildOptions = 
     }
   }
 
-  // Placer hommes (forts -> faibles) en snake
+  // Placer hommes (fortes -> faibles) en snake, en respectant targetSizes[idx]
   males.sort((a, b) => b.pv.total - a.pv.total);
   let dir = +1, idx = 0;
   for (const m of males) {
     let placed = false;
     let safety = 0;
-    while (!placed && safety < 2 * K) {
-      const t = teams[idx];
-      if (t.members.length < S) {
+    while (!placed && safety < 3 * K) {
+      const i = Math.max(0, Math.min(idx, K - 1));
+      const t = teams[i];
+      if (t.members.length < targetSizes[i]) {
         addToTeam(t, m.p, m.pv);
         placed = true;
       }
@@ -240,9 +239,17 @@ export function buildBalancedMixedTeams(players: Player[], opts: BuildOptions = 
       if (idx < 0 || idx >= K) { dir *= -1; idx += dir; }
       safety++;
     }
+    // sécurité si toutes les équipes semblent pleines
+    if (!placed) {
+      let bestI = 0, bestLen = Infinity;
+      for (let i = 0; i < K; i++) {
+        if (teams[i].members.length < bestLen) { bestLen = teams[i].members.length; bestI = i; }
+      }
+      addToTeam(teams[bestI], m.p, m.pv);
+    }
   }
 
-  // Swaps (même genre)
+  // Swaps (même genre) — inchangé
   let bestCost = computeCost(teams, lambdaCat, weights, lambdaMood);
   const pvById = new Map<string, PlayerVec>(meta.map(x => [x.p.id, x.pv]));
 
@@ -291,16 +298,14 @@ export function buildBalancedMixedTeams(players: Player[], opts: BuildOptions = 
   return teams;
 }
 
-// ---------------- CLI parsing (optionnel, si tu gardes une version node) ----------------
+// ---------------- CLI parsing (optionnel) ----------------
 interface CliOptions {
   numTeams?: number;
-  teamSize?: number;
   weights?: WeightsTuple;
   lambdaCat?: number;
   lambdaMood?: number;
   moodWeight?: number;
   swapIterations?: number;
-  allowUnevenLastTeam?: boolean;
   femaleFirst?: boolean;
 }
 
@@ -313,12 +318,10 @@ export function parseCli(): { file: string | null; opts: CliOptions } {
     const v = vRaw ?? "true";
     switch (k) {
       case "numTeams": opts.numTeams = Number(v); break;
-      case "teamSize": opts.teamSize = Number(v); break;
       case "lambdaCat": opts.lambdaCat = Number(v); break;
       case "lambdaMood": opts.lambdaMood = Number(v); break;
       case "moodWeight": opts.moodWeight = Number(v); break;
       case "swapIterations": opts.swapIterations = Number(v); break;
-      case "allowUnevenLastTeam": opts.allowUnevenLastTeam = v === "true"; break;
       case "femaleFirst": opts.femaleFirst = v === "true"; break;
       case "weights": {
         const arr = v.split(",").map(Number);
@@ -340,14 +343,12 @@ export type FrontWeights = [number, number, number, number, number];
 
 export interface FrontBuildOptions {
   numTeams?: number;
-  teamSize?: number;
   weights?: FrontWeights;       // [service, reception, passing, smash, defence]
   lambdaCat?: number;
   lambdaMood?: number;
   moodWeight?: number;
   swapIterations?: number;
   femaleFirst?: boolean;
-  allowUnevenLastTeam?: boolean;
 }
 
 export function buildTeamsFromPlayers(
@@ -361,12 +362,8 @@ export function buildTeamsFromPlayers(
     moodWeight: opts.moodWeight ?? 0.15,
     swapIterations: opts.swapIterations ?? 5000,
     femaleFirst: opts.femaleFirst ?? true,
-    allowUnevenLastTeam: opts.allowUnevenLastTeam ?? true,
-    ...(opts.numTeams || opts.teamSize
-      ? { numTeams: opts.numTeams, teamSize: opts.teamSize }
-      : players.length >= 12
-      ? { teamSize: 6 }
-      : { numTeams: 2 }),
+    // ➜ On ne passe QUE numTeams. Défaut: 2 équipes.
+    ...(opts.numTeams ? { numTeams: opts.numTeams } : { numTeams: 2 }),
   } as const;
 
   return buildBalancedMixedTeams(players, normalized);
