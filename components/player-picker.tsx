@@ -160,9 +160,6 @@ export default function PlayerPicker() {
             min={1}
             max={99}
           />
-          <div className="text-xs text-neutral-400">
-            L’algo accepte les deux. Si N n’est pas divisible par K×S, coche “équipe incomplète”.
-          </div>
         </div>
 
         {/* Bouton générer + erreurs */}
