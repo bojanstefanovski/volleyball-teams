@@ -12,7 +12,7 @@
 
 // ---------------- Types ----------------
 type Gender = "M" | "F";
-export type WeightsTuple = [number, number, number, number, number];
+export type WeightsTuple = [number, number, number, number, number, number];
 
 interface Categories {
   service: number;    // 1..10
@@ -58,8 +58,8 @@ export interface BuildOptions {
 
 // ---------------- Utils ----------------
 // volley: Service, Réception, Passe, Attaque (smash), Défense
-export const DEFAULT_CATEGORIES = ["service", "reception", "passing", "attack", "defence"];
-export const DEFAULT_WEIGHTS: WeightsTuple = [2, 3, 4, 4, 2];
+export const DEFAULT_CATEGORIES = ["service", "reception", "passing", "attack", "defence", "bloc"];
+export const DEFAULT_WEIGHTS: WeightsTuple = [2, 3, 3, 5, 2, 3];
 
 function toStrength(note: number, scale = 10): number {
   if (note < 1 || note > scale) throw new Error(`note doit être 1..${scale}`);
@@ -339,7 +339,7 @@ export function parseCli(): { file: string | null; opts: CliOptions } {
 }
 
 // ---------------- Front helpers (no fs, no CLI) ----------------
-export type FrontWeights = [number, number, number, number, number];
+export type FrontWeights = [number, number, number, number, number, number];
 
 export interface FrontBuildOptions {
   numTeams?: number;
