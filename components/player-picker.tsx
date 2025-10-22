@@ -3,8 +3,10 @@
 import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { Id } from "@/convex/_generated/dataModel";
 import { buildBalancedMixedTeams } from "../scripts/voley_teams";
 
+/** Domain types used by the algo */
 type Gender = "M" | "F";
 type Categories = {
   service: number;
@@ -22,7 +24,13 @@ type PlayerAlgo = {
   categories: Categories;
 };
 
-// Stepper - / +
+/** DB row shape for players (from Convex) */
+type PlayerFromDb = PlayerAlgo & {
+  _id: Id<"players">;
+  checked: boolean;
+};
+
+/** Stepper - / + */
 function StepperInput({
   label,
   value,
@@ -81,17 +89,8 @@ function StepperInput({
 export default function PlayerPicker() {
   const resultRef = useRef<HTMLDivElement | null>(null);
 
-  // 🔎 Récupère les joueurs depuis Convex
-  const playersFromDb =
-    useQuery(api.players.list, { onlyChecked: false }) as
-      | Array<
-          PlayerAlgo & {
-            _id: string; // Convex id
-            checked: boolean;
-          }
-        >
-      | undefined;
-
+  // 🔎 Fetch players from Convex (typed)
+  const playersFromDb = useQuery(api.players.list, { onlyChecked: false });
   const toggleCheckedMut = useMutation(api.players.toggleChecked);
 
   const [filter, setFilter] = useState("");
@@ -101,7 +100,7 @@ export default function PlayerPicker() {
   const [error, setError] = useState<string | null>(null);
 
   const loading = playersFromDb === undefined;
-  const players = playersFromDb ?? [];
+  const players: PlayerFromDb[] = playersFromDb ?? [];
 
   // Filtrage affichage
   const visible = useMemo(() => {
@@ -113,10 +112,10 @@ export default function PlayerPicker() {
   // Joueurs cochés
   const chosen = useMemo(() => players.filter((p) => p.checked), [players]);
 
-  // Toggle ligne (row click). On ne met pas onChange sur la checkbox pour éviter les doubles toggles.
-  const togglePlayer = async (player: { _id: string; checked: boolean }) => {
+  // Toggle ligne (row click)
+  const togglePlayer = async (player: PlayerFromDb) => {
     try {
-      await toggleCheckedMut({ _id: player._id as any, checked: !player.checked });
+      await toggleCheckedMut({ _id: player._id, checked: !player.checked });
     } catch (e) {
       console.error("toggleChecked failed:", e);
     }
@@ -155,7 +154,7 @@ export default function PlayerPicker() {
 
       {/* Panneau contrôles */}
       <section className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4 shadow-sm grid md:grid-cols-3 gap-6">
-        {/* Filtre (caché mobile si tu veux, ici on laisse visible) */}
+        {/* Filtre */}
         <div className="space-y-3">
           <h2 className="hidden md:block font-semibold">Filtrer & cocher</h2>
           <input
@@ -246,7 +245,6 @@ export default function PlayerPicker() {
                   }`}
                 >
                   <td className="px-2 py-2">
-                    {/* readOnly + pointer-events-none pour éviter double toggle */}
                     <input
                       type="checkbox"
                       className="h-4 w-4 pointer-events-none"
