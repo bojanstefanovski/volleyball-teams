@@ -2,12 +2,11 @@
 /* eslint-disable no-console */
 
 /**
- * TypeScript strict — Répartition d'équipes mixtes pour volley (1..10 + mood)
- * - Notes catégorie (service, reception, passing, smash, defence) + mood sur 1..10 (1 = meilleur, 10 = moins bon)
- * - Poids par catégorie (weights)
- * - Mixité: répartition des femmes prioritaire + swaps à genre égal
- * - Front helpers pour utiliser un tableau JSON directement
- * - ➜ VERSION: ne prend QUE numTeams (répartition auto des tailles d'équipes)
+ * Répartition d'équipes mixtes pour volley (1..10 + mood)
+ * - Priorité: équilibrer l'ATTAQUE (smash) sans concentrer les tops dans les équipes de 3
+ * - Semis initial: serpentin par smash (F puis M) en respectant les tailles cibles
+ * - Coût: variances **normalisées par la taille d'équipe** (moyennes) + boost sur smash
+ * - Swaps intra-genre pour affiner
  */
 
 // ---------------- Types ----------------
@@ -15,60 +14,60 @@ type Gender = "M" | "F";
 export type WeightsTuple = [number, number, number, number, number, number];
 
 interface Categories {
-  service: number;    // 1..10
-  reception: number;  // 1..10
-  passing: number;    // 1..10
-  smash: number;      // 1..10
-  defence: number;    // 1..10
+  service: number;
+  reception: number;
+  passing: number;
+  smash: number;
+  defence: number;
+  bloc: number;
 }
 
 export interface Player {
   id: string;
   name: string;
   gender: Gender;
-  mood?: number;            // 1..10 (facultatif → neutre = 5.5)
-  categories: Categories;   // 1..10 (1 = meilleur, 10 = moins bon)
+  mood?: number; // 1..10
+  categories: Categories; // 1..10 (10 = meilleur)
 }
 
 interface PlayerVec {
-  total: number;    // score total (pondéré + mood)
-  vec: number[];    // [service..defence] pondéré par weights
-  baseTotal: number;
-  moodNorm: number; // [-1..+1]
+  total: number;      // score global (pondéré + mood)
+  vec: number[];      // catégories pondérées
+  baseTotal: number;  // sans mood
+  moodNorm: number;   // [-1..+1]
+  smashRaw: number;   // smash non pondéré, pour trier l'attaque
 }
 
 export interface Team {
   members: Player[];
-  total: number;       // somme des totals
-  baseTotal: number;   // somme sans mood
-  catSums: number[];   // somme par catégorie (pondérée)
-  women: number;       // compteur F
-  moodSum: number;     // somme des moods normalisés
+  total: number;
+  baseTotal: number;
+  catSums: number[]; // sommes pondérées (serv..bloc)
+  women: number;
+  moodSum: number;
 }
 
 export interface BuildOptions {
   numTeams?: number;
-  weights?: WeightsTuple;        // ordre: [service, reception, passing, smash, defence]
+  weights?: WeightsTuple;  // [service, reception, passing, smash, defence, bloc]
   lambdaCat?: number;
   lambdaMood?: number;
   moodWeight?: number;
   swapIterations?: number;
   femaleFirst?: boolean;
+  attackPriorityFactor?: number; // poids spécifique de l’attaque dans le coût (par défaut 2)
 }
 
 // ---------------- Utils ----------------
-// volley: Service, Réception, Passe, Attaque (smash), Défense
-export const DEFAULT_CATEGORIES = ["service", "reception", "passing", "attack", "defence", "bloc"];
-export const DEFAULT_WEIGHTS: WeightsTuple = [2, 3, 3, 5, 2, 3];
+export const DEFAULT_WEIGHTS: WeightsTuple = [2, 3, 3, 6, 2, 3]; // smash déjà un peu boosté
 
-function toStrength(note: number, scale = 10): number {
-  if (note < 1 || note > scale) throw new Error(`note doit être 1..${scale}`);
-  return note; // 10 = meilleur, 1 = moins bon
+function assertRange(v: number, lo: number, hi: number, msg: string) {
+  if (typeof v !== "number" || v < lo || v > hi) throw new Error(msg);
 }
 
 function moodNorm(mood: number): number {
-  if (mood < 1 || mood > 10) throw new Error("mood doit être 1..10");
-  return (mood - 5.5) / 4.5; // 1 -> -1, 10 -> +1
+  assertRange(mood, 1, 10, "mood doit être 1..10");
+  return (mood - 5.5) / 4.5;
 }
 
 function playerVectorStrength(
@@ -76,21 +75,27 @@ function playerVectorStrength(
   weights: WeightsTuple,
   moodWeight: number
 ): PlayerVec {
+  // 10 = meilleur
   const raw: number[] = [
-    toStrength(p.categories.service),
-    toStrength(p.categories.reception),
-    toStrength(p.categories.passing),
-    toStrength(p.categories.smash),
-    toStrength(p.categories.defence),
+    p.categories.service,
+    p.categories.reception,
+    p.categories.passing,
+    p.categories.smash,
+    p.categories.defence,
+    p.categories.bloc,
   ];
+  // valider 1..10
+  raw.forEach((v, i) => assertRange(v, 1, 10, `Catégorie #${i} de ${p.name} doit être 1..10`));
+  if (p.mood !== undefined) assertRange(p.mood, 1, 10, `mood de ${p.name} doit être 1..10`);
+
   const vecWeighted = raw.map((v, i) => v * (weights[i] ?? 1));
   const baseTotal = vecWeighted.reduce((a, b) => a + b, 0);
   const m = p.mood ?? 5.5;
   const total = baseTotal * (1 + moodWeight * moodNorm(m));
-  return { total, vec: vecWeighted, baseTotal, moodNorm: moodNorm(m) };
+  return { total, vec: vecWeighted, baseTotal, moodNorm: moodNorm(m), smashRaw: p.categories.smash };
 }
 
-function emptyTeam(k = 5): Team {
+function emptyTeam(k = 6): Team {
   return { members: [], total: 0, baseTotal: 0, catSums: Array(k).fill(0), women: 0, moodSum: 0 };
 }
 
@@ -114,40 +119,102 @@ function removeFromTeam(team: Team, idx: number, pv: PlayerVec): Player {
   return p;
 }
 
+// ---------------- Cost (normalisé par taille d'équipe) ----------------
 export function computeCost(
   teams: Team[],
   lambdaCat: number,
   weights: WeightsTuple,
-  lambdaMood: number
+  lambdaMood: number,
+  attackPriorityFactor: number
 ): number {
   const k = teams.length;
-  const totals = teams.map(t => t.total);
-  const mean = totals.reduce((a, b) => a + b, 0) / k;
-  const varTotals = totals.reduce((a, s) => a + (s - mean) ** 2, 0) / k;
 
+  // Variance des TOT en moyenne par joueur (pour neutraliser tailles 3 vs 4)
+  const totalsAvg = teams.map(t => (t.members.length ? t.total / t.members.length : 0));
+  const meanTot = totalsAvg.reduce((a, b) => a + b, 0) / k;
+  const varTotals = totalsAvg.reduce((a, s) => a + (s - meanTot) ** 2, 0) / k;
+
+  // Variance des catégories par MOYENNE (catSums / teamSize)
   let varCatsNorm = 0;
   if (lambdaCat > 0) {
     let acc = 0;
     let wsum = 0;
-    for (let c = 0; c < 5; c++) {
-      const xs = teams.map(t => t.catSums[c]);
-      const m = xs.reduce((a, b) => a + b, 0) / k;
-      const vc = xs.reduce((a, x) => a + (x - m) ** 2, 0) / k;
-      const wc = (weights[c] ?? 1) ** 2;
+    for (let c = 0; c < weights.length; c++) {
+      const avgs = teams.map(t => (t.members.length ? t.catSums[c] / t.members.length : 0));
+      const m = avgs.reduce((a, b) => a + b, 0) / k;
+      const vc = avgs.reduce((a, x) => a + (x - m) ** 2, 0) / k;
+
+      let wc = (weights[c] ?? 1) ** 2;
+      // ➜ Smash prioritaire
+      if (c === 3) wc *= attackPriorityFactor; // c=3 → smash
+
       acc += wc * vc;
       wsum += wc;
     }
     varCatsNorm = acc / (wsum || 1);
   }
 
+  // Variance du mood (moyenne aussi)
   let varMood = 0;
   if (lambdaMood > 0) {
-    const ms = teams.map(t => t.moodSum);
-    const mm = ms.reduce((a, b) => a + b, 0) / k;
-    varMood = ms.reduce((a, x) => a + (x - mm) ** 2, 0) / k;
+    const avgs = teams.map(t => (t.members.length ? t.moodSum / t.members.length : 0));
+    const m = avgs.reduce((a, b) => a + b, 0) / k;
+    varMood = avgs.reduce((a, x) => a + (x - m) ** 2, 0) / k;
   }
 
   return varTotals + lambdaCat * varCatsNorm + lambdaMood * varMood;
+}
+
+// ---------------- Seeding: serpentin par smash ----------------
+function seedBySmashSerpentine(
+  teams: Team[],
+  meta: Array<{ p: Player; pv: PlayerVec }>,
+  targetSizes: number[]
+) {
+  // Trier par smash (meilleur → pire)
+  meta.sort((a, b) => b.pv.smashRaw - a.pv.smashRaw);
+
+  let forward = true;
+  let i = 0;
+  for (const item of meta) {
+    // chercher la prochaine équipe qui n'a pas atteint sa taille cible
+    let placed = false;
+    let tries = 0;
+    while (!placed && tries < teams.length * 2) {
+      const idx = Math.max(0, Math.min(i, teams.length - 1));
+      if (teams[idx].members.length < targetSizes[idx]) {
+        addToTeam(teams[idx], item.p, item.pv);
+        placed = true;
+      }
+      // avancer le serpentin
+      if (forward) {
+        i++;
+        if (i >= teams.length) {
+          i = teams.length - 1;
+          forward = false;
+        }
+      } else {
+        i--;
+        if (i < 0) {
+          i = 0;
+          forward = true;
+        }
+      }
+      tries++;
+    }
+    // fallback si tout plein (sécurité)
+    if (!placed) {
+      let bestI = 0;
+      let bestLen = Infinity;
+      for (let t = 0; t < teams.length; t++) {
+        if (teams[t].members.length < bestLen) {
+          bestLen = teams[t].members.length;
+          bestI = t;
+        }
+      }
+      addToTeam(teams[bestI], item.p, item.pv);
+    }
+  }
 }
 
 // ---------------- Core Algorithm ----------------
@@ -155,11 +222,12 @@ export function buildBalancedMixedTeams(players: Player[], opts: BuildOptions = 
   const {
     numTeams,
     weights = DEFAULT_WEIGHTS,
-    lambdaCat = 0.3,
+    lambdaCat = 0.5,
     lambdaMood = 0.3,
     moodWeight = 0.15,
     swapIterations = 5000,
     femaleFirst = true,
+    attackPriorityFactor = 2, // ⇦ réglable
   } = opts;
 
   if (!numTeams) throw new Error("Spécifie numTeams (le nombre d'équipes).");
@@ -167,28 +235,15 @@ export function buildBalancedMixedTeams(players: Player[], opts: BuildOptions = 
   const N = players.length;
   const K = Math.max(2, numTeams);
 
-  // Répartition automatique des tailles d'équipe (diffèrent d'au plus 1)
+  // Tailles cibles (diffèrent d'au plus 1) — important si 3 vs 4
   const base = Math.floor(N / K);
   const rem = N % K;
   const targetSizes = Array.from({ length: K }, (_, i) => base + (i < rem ? 1 : 0));
 
-  // Validation des données joueur
-  for (const pl of players) {
-    (["service", "reception", "passing", "smash", "defence"] as (keyof Categories)[]).forEach((kCat) => {
-      const v = pl.categories[kCat];
-      if (typeof v !== "number" || v < 1 || v > 10) {
-        throw new Error(`Catégorie ${String(kCat)} de ${pl.name} doit être 1..10`);
-      }
-    });
-    if (pl.mood !== undefined && (pl.mood < 1 || pl.mood > 10)) {
-      throw new Error(`mood de ${pl.name} doit être 1..10`);
-    }
-  }
-
   // Pré-calc
-  const meta = players.map(p => ({ p, pv: playerVectorStrength(p, weights, moodWeight) }));
-  const females = meta.filter(x => x.p.gender === "F");
-  const males = meta.filter(x => x.p.gender !== "F");
+  const metaAll = players.map(p => ({ p, pv: playerVectorStrength(p, weights, moodWeight) }));
+  const females = metaAll.filter(x => x.p.gender === "F");
+  const males = metaAll.filter(x => x.p.gender !== "F");
 
   // Cibles femmes
   const targetWomen: number[] = Array<number>(K).fill(0);
@@ -198,60 +253,58 @@ export function buildBalancedMixedTeams(players: Player[], opts: BuildOptions = 
     for (let i = 0; i < K; i++) targetWomen[i] = baseF + (i < remF ? 1 : 0);
   }
 
-  const teams: Team[] = Array.from({ length: K }, () => emptyTeam(5));
+  const teams: Team[] = Array.from({ length: K }, () => emptyTeam(6));
 
-  // Placer femmes (fortes -> faibles) en respectant targetSizes[i]
-  if (femaleFirst) {
-    females.sort((a, b) => b.pv.total - a.pv.total);
-    for (const f of females) {
-      const candidates: { i: number; total: number }[] = [];
-      for (let i = 0; i < K; i++) {
-        const t = teams[i];
-        if (t.members.length < targetSizes[i] && t.women < targetWomen[i]) {
-          candidates.push({ i, total: t.total });
+  // 1) Seed FEMMES par smash en serpentin, en tentant de respecter targetWomen ET targetSizes
+  if (femaleFirst && females.length > 0) {
+    // on limite implicitement via targetSizes; la contrainte targetWomen est gérée en faisant un 1er passage
+    // qui place au maximum targetWomen[i] femmes dans chaque équipe
+    const buckets: Array<{ p: Player; pv: PlayerVec }[]> = Array.from({ length: K }, () => []);
+    // pré-répartition "théorique" pour respecter targetWomen en serpentin
+    let forward = true, i = 0;
+    const femSorted = [...females].sort((a, b) => b.pv.smashRaw - a.pv.smashRaw);
+    for (const f of femSorted) {
+      let placed = false, guard = 0;
+      while (!placed && guard < K * 2) {
+        const idx = Math.max(0, Math.min(i, K - 1));
+        // n'ajoute au "bucket" que si on n'a pas dépassé targetWomen pour cette équipe
+        if (buckets[idx].length < targetWomen[idx]) {
+          buckets[idx].push(f);
+          placed = true;
         }
-      }
-      if (candidates.length === 0) {
-        for (let i = 0; i < K; i++) {
-          const t = teams[i];
-          if (t.members.length < targetSizes[i]) candidates.push({ i, total: t.total });
+        if (forward) {
+          i++;
+          if (i >= K) { i = K - 1; forward = false; }
+        } else {
+          i--;
+          if (i < 0) { i = 0; forward = true; }
         }
+        guard++;
       }
-      candidates.sort((a, b) => a.total - b.total);
-      addToTeam(teams[candidates[0].i], f.p, f.pv);
+      if (!placed) {
+        // si toutes les cibles femmes sont déjà satisfaites, on pousse juste en charge la plus faible
+        let bestI = 0, bestLen = Infinity;
+        for (let t = 0; t < K; t++) {
+          if (buckets[t].length < bestLen) { bestLen = buckets[t].length; bestI = t; }
+        }
+        buckets[bestI].push(f);
+      }
+    }
+    // maintenant, place vraiment en respectant targetSizes
+    for (let t = 0; t < K; t++) {
+      for (const f of buckets[t]) {
+        if (teams[t].members.length < targetSizes[t]) addToTeam(teams[t], f.p, f.pv);
+      }
     }
   }
 
-  // Placer hommes (fortes -> faibles) en snake, en respectant targetSizes[idx]
-  males.sort((a, b) => b.pv.total - a.pv.total);
-  let dir = +1, idx = 0;
-  for (const m of males) {
-    let placed = false;
-    let safety = 0;
-    while (!placed && safety < 3 * K) {
-      const i = Math.max(0, Math.min(idx, K - 1));
-      const t = teams[i];
-      if (t.members.length < targetSizes[i]) {
-        addToTeam(t, m.p, m.pv);
-        placed = true;
-      }
-      idx += dir;
-      if (idx < 0 || idx >= K) { dir *= -1; idx += dir; }
-      safety++;
-    }
-    // sécurité si toutes les équipes semblent pleines
-    if (!placed) {
-      let bestI = 0, bestLen = Infinity;
-      for (let i = 0; i < K; i++) {
-        if (teams[i].members.length < bestLen) { bestLen = teams[i].members.length; bestI = i; }
-      }
-      addToTeam(teams[bestI], m.p, m.pv);
-    }
-  }
+  // 2) Seed HOMMES par smash en serpentin (remplit le reste) en respectant targetSizes
+  const malesLeft = metaAll.filter(x => !teams.some(T => T.members.some(m => m.id === x.p.id)));
+  seedBySmashSerpentine(teams, malesLeft, targetSizes);
 
-  // Swaps (même genre) — inchangé
-  let bestCost = computeCost(teams, lambdaCat, weights, lambdaMood);
-  const pvById = new Map<string, PlayerVec>(meta.map(x => [x.p.id, x.pv]));
+  // 3) Swaps intra-genre pilotés par coût normalisé (attaque prioritaire)
+  let bestCost = computeCost(teams, lambdaCat, weights, lambdaMood, attackPriorityFactor);
+  const pvById = new Map<string, PlayerVec>(metaAll.map(x => [x.p.id, x.pv]));
 
   const pickIndexTeamWithGender = (t: Team, g: Gender): number => {
     const idxs: number[] = [];
@@ -278,12 +331,13 @@ export function buildBalancedMixedTeams(players: Player[], opts: BuildOptions = 
     const pva = pvById.get(pa.id)!;
     const pvb = pvById.get(pb.id)!;
 
+    // swap
     removeFromTeam(ta, ia, pva);
     removeFromTeam(tb, ib, pvb);
     addToTeam(ta, pb, pvb);
     addToTeam(tb, pa, pva);
 
-    const newCost = computeCost(teams, lambdaCat, weights, lambdaMood);
+    const newCost = computeCost(teams, lambdaCat, weights, lambdaMood, attackPriorityFactor);
     if (newCost <= bestCost) {
       bestCost = newCost;
     } else {
@@ -298,81 +352,34 @@ export function buildBalancedMixedTeams(players: Player[], opts: BuildOptions = 
   return teams;
 }
 
-// ---------------- CLI parsing (optionnel) ----------------
-interface CliOptions {
-  numTeams?: number;
-  weights?: WeightsTuple;
-  lambdaCat?: number;
-  lambdaMood?: number;
-  moodWeight?: number;
-  swapIterations?: number;
-  femaleFirst?: boolean;
-}
-
-export function parseCli(): { file: string | null; opts: CliOptions } {
-  const args = process.argv.slice(2);
-  const file = args.find(a => !a.startsWith("--")) ?? null;
-  const opts: CliOptions = {};
-  for (const a of args.filter(a => a.startsWith("--"))) {
-    const [k, vRaw] = a.replace(/^--/, "").split("=");
-    const v = vRaw ?? "true";
-    switch (k) {
-      case "numTeams": opts.numTeams = Number(v); break;
-      case "lambdaCat": opts.lambdaCat = Number(v); break;
-      case "lambdaMood": opts.lambdaMood = Number(v); break;
-      case "moodWeight": opts.moodWeight = Number(v); break;
-      case "swapIterations": opts.swapIterations = Number(v); break;
-      case "femaleFirst": opts.femaleFirst = v === "true"; break;
-      case "weights": {
-        const arr = v.split(",").map(Number);
-        if (arr.length !== 5 || arr.some(n => Number.isNaN(n))) {
-          throw new Error("--weights doit contenir exactement 5 nombres séparés par des virgules");
-        }
-        opts.weights = arr as WeightsTuple;
-        break;
-      }
-      default:
-        throw new Error(`Option inconnue: --${k}`);
-    }
-  }
-  return { file, opts };
-}
-
-// ---------------- Front helpers (no fs, no CLI) ----------------
-export type FrontWeights = [number, number, number, number, number, number];
-
+// ---------------- Front helpers ----------------
+export type FrontWeights = WeightsTuple;
 export interface FrontBuildOptions {
   numTeams?: number;
-  weights?: FrontWeights;       // [service, reception, passing, smash, defence]
+  weights?: FrontWeights;
   lambdaCat?: number;
   lambdaMood?: number;
   moodWeight?: number;
   swapIterations?: number;
   femaleFirst?: boolean;
+  attackPriorityFactor?: number;
 }
 
-export function buildTeamsFromPlayers(
-  players: Player[],
-  opts: FrontBuildOptions = {}
-) {
+export function buildTeamsFromPlayers(players: Player[], opts: FrontBuildOptions = {}) {
   const normalized = {
     weights: opts.weights ?? DEFAULT_WEIGHTS,
-    lambdaCat: opts.lambdaCat ?? 0.3,
+    lambdaCat: opts.lambdaCat ?? 0.5,
     lambdaMood: opts.lambdaMood ?? 0.3,
     moodWeight: opts.moodWeight ?? 0.15,
     swapIterations: opts.swapIterations ?? 5000,
     femaleFirst: opts.femaleFirst ?? true,
-    // ➜ On ne passe QUE numTeams. Défaut: 2 équipes.
+    attackPriorityFactor: opts.attackPriorityFactor ?? 2,
     ...(opts.numTeams ? { numTeams: opts.numTeams } : { numTeams: 2 }),
   } as const;
-
   return buildBalancedMixedTeams(players, normalized);
 }
 
-export function buildTeamsFromJsonString(
-  jsonString: string,
-  opts: FrontBuildOptions = {}
-) {
+export function buildTeamsFromJsonString(jsonString: string, opts: FrontBuildOptions = {}) {
   const players = JSON.parse(jsonString) as Player[];
   return buildTeamsFromPlayers(players, opts);
 }
