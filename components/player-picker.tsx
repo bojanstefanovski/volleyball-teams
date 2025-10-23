@@ -2,8 +2,8 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { api } from "@/convex/_generated/api";
-import { Id } from "@/convex/_generated/dataModel";
+import { api } from "../convex/_generated/api";
+import { Id } from "../convex/_generated/dataModel";
 import { buildBalancedMixedTeams } from "../scripts/voley_teams";
 
 /** Domain types used by the algo */
