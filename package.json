@@ -3,11 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build --turbopack",
-    "start": "next start",
-    "lint": "eslint"
-  },
+  "dev": "next dev --turbopack",
+  "build": "convex codegen && next build --turbopack",
+  "start": "next start",
+  "lint": "eslint",
+  "convex:codegen": "convex codegen",
+  "postinstall": "convex codegen"
+},
   "dependencies": {
     "c": "^1.1.1",
     "convex": "^1.28.0",
