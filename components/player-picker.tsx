@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { Id } from "../convex/_generated/dataModel";
@@ -58,7 +58,7 @@ function StepperInput({
           type="button"
           onClick={dec}
           aria-label={`Diminuer ${label}`}
-          className="h-8 w-8 rounded-md border border-neutral-700 bg-neutral-800 hover:bg-neutral-700 active:opacity-90 disabled:opacity-50"
+          className="h-8 w-8 rounded-md border border-neutral-700 bg-neutral-800 hover:bg-neutral-700 active:opacity-90 disabled:opacity-50 cursor-pointer"
           disabled={value <= min}
         >
           −
@@ -76,7 +76,7 @@ function StepperInput({
           type="button"
           onClick={inc}
           aria-label={`Augmenter ${label}`}
-          className="h-8 w-8 rounded-md border border-neutral-700 bg-neutral-800 hover:bg-neutral-700 active:opacity-90 disabled:opacity-50"
+          className="h-8 w-8 rounded-md border border-neutral-700 bg-neutral-800 hover:bg-neutral-700 active:opacity-90 disabled:opacity-50 cursor-pointer"
           disabled={value >= max}
         >
           +
@@ -86,33 +86,186 @@ function StepperInput({
   );
 }
 
+/** Small helper for 1..10 numeric inputs */
+function NoteInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  const clamp = (n: number) => Math.max(1, Math.min(10, Math.round(n)));
+  return (
+    <label className="flex items-center justify-between gap-3 text-sm">
+      <span className="text-neutral-300">{label}</span>
+      <input
+        type="number"
+        min={1}
+        max={10}
+        value={value}
+        onChange={(e) => onChange(clamp(Number(e.target.value)))}
+        className="w-20 text-center rounded-md border border-neutral-700 bg-neutral-800 px-2 py-1 text-neutral-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+      />
+    </label>
+  );
+}
+
+/** Slide-over edit panel */
+function EditPanel({
+  open,
+  onClose,
+  player,
+  onSave,
+  saving,
+}: {
+  open: boolean;
+  onClose: () => void;
+  player: PlayerFromDb | null;
+  onSave: (p: PlayerFromDb) => Promise<void>;
+  saving: boolean;
+}) {
+  const [form, setForm] = useState<PlayerFromDb | null>(player);
+
+  // keep form in sync when player changes
+  useEffect(() => setForm(player), [player]);
+
+  if (!open || !form) return null;
+
+  const setCat = (k: keyof Categories, v: number) =>
+    setForm({ ...form, categories: { ...form.categories, [k]: v } });
+
+  const setField = <K extends keyof PlayerFromDb>(k: K, v: PlayerFromDb[K]) =>
+    setForm({ ...form, [k]: v });
+
+  const submit = async () => {
+    await onSave(form);
+  };
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 bg-black/50 z-40"
+        onClick={onClose}
+      />
+      {/* Panel */}
+      <div className="fixed right-0 top-0 h-full w-full sm:w-[480px] z-50 bg-neutral-900 border-l border-neutral-800 shadow-2xl p-5 overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-white">Modifier le joueur</h3>
+          <button
+            onClick={onClose}
+            className="rounded-md border border-neutral-700 px-2 py-1 text-neutral-300 hover:bg-neutral-800 cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <label className="block text-sm">
+            <span className="text-neutral-300">Nom</span>
+            <input
+              type="text"
+              value={form.name}
+              onChange={(e) => setField("name", e.target.value)}
+              className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-neutral-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </label>
+
+          <label className="block text-sm">
+            <span className="text-neutral-300">Sexe</span>
+            <select
+              value={form.gender}
+              onChange={(e) => setField("gender", e.target.value as Gender)}
+              className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-neutral-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value="M">M</option>
+              <option value="F">F</option>
+            </select>
+          </label>
+
+          <NoteInput
+            label="Mood (1..10)"
+            value={form.mood ?? 5}
+            onChange={(v) => setField("mood", v)}
+          />
+
+          <div className="mt-4 space-y-3 rounded-xl border border-neutral-800 bg-neutral-900 p-4">
+            <div className="text-neutral-200 font-medium">Catégories (1..10)</div>
+            <NoteInput label="Service"   value={form.categories.service}   onChange={(v) => setCat("service", v)} />
+            <NoteInput label="Réception" value={form.categories.reception} onChange={(v) => setCat("reception", v)} />
+            <NoteInput label="Passe"     value={form.categories.passing}   onChange={(v) => setCat("passing", v)} />
+            <NoteInput label="Attaque"   value={form.categories.smash}     onChange={(v) => setCat("smash", v)} />
+            <NoteInput label="Défense"   value={form.categories.defence}   onChange={(v) => setCat("defence", v)} />
+            <NoteInput label="Bloc"      value={form.categories.bloc}      onChange={(v) => setCat("bloc", v)} />
+          </div>
+
+          <label className="flex items-center gap-2 text-sm text-neutral-300">
+            <input
+              type="checkbox"
+              checked={form.checked}
+              onChange={(e) => setField("checked", e.target.checked)}
+              className="h-4 w-4 rounded border-neutral-700 bg-neutral-800"
+            />
+            Présent (checked)
+          </label>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              onClick={onClose}
+              className="rounded-md border border-neutral-700 px-3 py-2 text-neutral-300 hover:bg-neutral-800 cursor-pointer"
+            >
+              Annuler
+            </button>
+            <button
+              onClick={submit}
+              disabled={saving}
+              className="rounded-md border border-neutral-700 bg-indigo-600/90 text-white px-4 py-2 hover:bg-indigo-600 disabled:opacity-60 cursor-pointer"
+            >
+              {saving ? "Enregistrement…" : "Enregistrer"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function PlayerPicker() {
   const resultRef = useRef<HTMLDivElement | null>(null);
 
-  // 🔎 Fetch players from Convex (typed)
+  // 🔎 Fetch players
   const playersFromDb = useQuery(api.players.list, { onlyChecked: false });
   const toggleCheckedMut = useMutation(api.players.toggleChecked);
+  const upsertOneMut = useMutation(api.players.upsertOne);
+  // (optionnel) backend bulk:
+  const uncheckAllMut = useMutation(api.players.uncheckAll); // -> si tu ajoutes la mutation backend fournie plus bas
 
   const [filter, setFilter] = useState("");
-  const [numTeams, setNumTeams] = useState<number>(1);
-  const [teams, setTeams] =
-    useState<ReturnType<typeof buildBalancedMixedTeams> | null>(null);
+  const [numTeams, setNumTeams] = useState<number>(4);
+  const [teams, setTeams] = useState<ReturnType<typeof buildBalancedMixedTeams> | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // edit panel state
+  const [editOpen, setEditOpen] = useState(false);
+  const [editing, setEditing] = useState<PlayerFromDb | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  // bulk busy
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const loading = playersFromDb === undefined;
   const players: PlayerFromDb[] = playersFromDb ?? [];
 
-  // Filtrage affichage
   const visible = useMemo(() => {
     const f = filter.trim().toLowerCase();
     if (!f) return players;
     return players.filter((p) => p.name.toLowerCase().includes(f));
   }, [players, filter]);
 
-  // Joueurs cochés
   const chosen = useMemo(() => players.filter((p) => p.checked), [players]);
 
-  // Toggle ligne (row click)
   const togglePlayer = async (player: PlayerFromDb) => {
     try {
       await toggleCheckedMut({ _id: player._id, checked: !player.checked });
@@ -121,13 +274,42 @@ export default function PlayerPicker() {
     }
   };
 
+  const openEditor = (player: PlayerFromDb) => {
+    setEditing(player);
+    setEditOpen(true);
+  };
+
+  const savePlayer = async (p: PlayerFromDb) => {
+    setSaving(true);
+    try {
+      await upsertOneMut({
+        id: p.id,
+        name: p.name,
+        gender: p.gender,
+        mood: p.mood ?? 5,
+        categories: {
+          service: p.categories.service,
+          reception: p.categories.reception,
+          passing: p.categories.passing,
+          smash: p.categories.smash,
+          defence: p.categories.defence,
+          bloc: p.categories.bloc,
+        },
+        checked: p.checked,
+      });
+      setEditOpen(false);
+    } catch (e) {
+      console.error("upsertOne failed:", e);
+      alert("Échec de l’enregistrement.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const generate = () => {
     try {
       setError(null);
-      const result = buildBalancedMixedTeams(chosen, {
-        numTeams,
-        femaleFirst: true,
-      });
+      const result = buildBalancedMixedTeams(chosen, { numTeams, femaleFirst: true });
       setTeams(result);
       setTimeout(() => {
         resultRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -138,9 +320,28 @@ export default function PlayerPicker() {
     }
   };
 
+  // === Tout décocher ===
+  const uncheckAll = async () => {
+    if (chosen.length === 0) return;
+    const ok = confirm(`Décocher ${chosen.length} joueur(s) ?`);
+    if (!ok) return;
+    setBulkBusy(true);
+    try {
+      // Option 1 (simple, déjà OK sans backend extra) :
+      // await Promise.allSettled(
+      //   chosen.map((p) => toggleCheckedMut({ _id: p._id, checked: false }))
+      // );
+
+      // Option 2 (plus rapide, 1 mutation) : nécessite la mutation backend players.uncheckAll ci-dessous
+      await uncheckAllMut();
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-6xl p-4 space-y-6 bg-neutral-900 text-neutral-100">
-      {/* Header sticky en mobile */}
+      {/* Header */}
       <header className="flex items-center justify-between sticky top-0 z-20 bg-neutral-900 p-2 md:static md:p-0">
         <div className="flex items-center gap-4 text-xs text-neutral-400">
           <div>
@@ -181,11 +382,21 @@ export default function PlayerPicker() {
         <div className="flex flex-col justify-end gap-2">
           <button
             onClick={generate}
-            className="rounded-xl border border-neutral-700 bg-indigo-600/90 text-white px-3 py-2 text-sm hover:bg-indigo-600 disabled:opacity-50"
+            className="rounded-xl border border-neutral-700 bg-indigo-600/90 text-white px-3 py-2 text-sm hover:bg-indigo-600 disabled:opacity-50 cursor-pointer"
             disabled={loading || players.length === 0 || chosen.length === 0}
           >
             Générer les équipes
           </button>
+
+          <button
+            onClick={uncheckAll}
+            className="rounded-xl border border-neutral-700 bg-neutral-800 text-neutral-200 px-3 py-2 text-sm hover:bg-neutral-700 disabled:opacity-50 cursor-pointer"
+            disabled={loading || chosen.length === 0 || bulkBusy}
+            title={chosen.length === 0 ? "Aucun joueur coché" : "Décocher tous les joueurs cochés"}
+          >
+            {bulkBusy ? "Décochage…" : `Tout décocher (${chosen.length})`}
+          </button>
+
           {error && <div className="text-rose-400 text-sm">{error}</div>}
         </div>
       </section>
@@ -201,14 +412,24 @@ export default function PlayerPicker() {
               return (
                 <li
                   key={p._id}
-                  onClick={() => togglePlayer(p)}
-                  role="button"
-                  aria-pressed={isOn}
-                  className={`px-4 py-3 cursor-pointer transition-colors ${
+                  className={`px-4 py-3 transition-colors ${
                     isOn ? "bg-indigo-900/30" : "bg-neutral-900"
-                  } hover:bg-neutral-800 active:opacity-90`}
+                  } hover:bg-neutral-800`}
                 >
-                  <span className="text-sm font-medium">{p.name}</span>
+                  <div className="flex items-center justify-between">
+                    <button
+                      onClick={() => togglePlayer(p)}
+                      className="text-left flex-1 cursor-pointer"
+                    >
+                      <span className="text-sm font-medium">{p.name}</span>
+                    </button>
+                    <button
+                      onClick={() => openEditor(p)}
+                      className="ml-3 rounded-md border border-neutral-700 px-2 py-1 text-xs text-neutral-200 hover:bg-neutral-800 cursor-pointer"
+                    >
+                      Éditer
+                    </button>
+                  </div>
                 </li>
               );
             })}
@@ -233,26 +454,28 @@ export default function PlayerPicker() {
                 <th className="text-right px-2 py-2">Attaque</th>
                 <th className="text-right px-2 py-2">Défense</th>
                 <th className="text-right px-2 py-2">Bloc</th>
+                <th className="px-2 py-2 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               {visible.map((p) => (
                 <tr
                   key={p._id}
-                  onClick={() => togglePlayer(p)}
-                  className={`border-t border-neutral-800 hover:bg-neutral-800/60 cursor-pointer ${
-                    p.checked ? "bg-indigo-900/30" : ""
-                  }`}
+                  className={`border-t border-neutral-800 hover:bg-neutral-800/60`}
                 >
                   <td className="px-2 py-2">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 pointer-events-none"
-                      checked={p.checked}
-                      readOnly
+                    <button
+                      onClick={() => togglePlayer(p)}
+                      className={`h-5 w-5 rounded border cursor-pointer ${
+                        p.checked
+                          ? "bg-indigo-600 border-indigo-500"
+                          : "bg-neutral-800 border-neutral-700"
+                      }`}
+                      aria-pressed={p.checked}
+                      title="Présent"
                     />
                   </td>
-                  <td className="px-2 py-2">{p.name}</td>
+                  <td className={`px-2 py-2 ${p.checked ? "text-white" : ""}`}>{p.name}</td>
                   <td className="px-2 py-2">
                     <span
                       className={`text-xs px-2 py-0.5 rounded ${
@@ -270,6 +493,14 @@ export default function PlayerPicker() {
                   <td className="px-2 py-2 text-right">{p.categories.smash}</td>
                   <td className="px-2 py-2 text-right">{p.categories.defence}</td>
                   <td className="px-2 py-2 text-right">{p.categories.bloc}</td>
+                  <td className="px-2 py-2 text-right">
+                    <button
+                      onClick={() => openEditor(p)}
+                      className="rounded-md border border-neutral-700 px-2 py-1 text-xs text-neutral-200 hover:bg-neutral-800 cursor-pointer"
+                    >
+                      Éditer
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -299,6 +530,15 @@ export default function PlayerPicker() {
           ))}
         </section>
       )}
+
+      {/* Edit slide-over */}
+      <EditPanel
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        player={editing}
+        onSave={savePlayer}
+        saving={saving}
+      />
     </div>
   );
 }
