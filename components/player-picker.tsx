@@ -309,7 +309,7 @@ export default function PlayerPicker() {
   const generate = () => {
     try {
       setError(null);
-      const result = buildBalancedMixedTeams(chosen, { numTeams, femaleFirst: true });
+      const result = buildBalancedMixedTeams(chosen, { numTeams, femaleFirst: true, moodWeight: 0, lambdaMood: 0 });
       setTeams(result);
       setTimeout(() => {
         resultRef.current?.scrollIntoView({ behavior: "smooth" });
