@@ -93,20 +93,53 @@ function NoteInput({
   onChange,
 }: {
   label: string;
-  value: number;
+  value: number;           // 1..10
   onChange: (v: number) => void;
 }) {
+  // keep a local string buffer so the user can clear, paste, etc.
+  const [buf, setBuf] = useState<string>(String(value));
+
+  // if parent value changes from outside, sync buffer
+  useEffect(() => {
+    setBuf(String(value));
+  }, [value]);
+
   const clamp = (n: number) => Math.max(1, Math.min(10, Math.round(n)));
+
+  const commit = () => {
+    const n = Number(buf);
+    if (Number.isFinite(n)) {
+      onChange(clamp(n));
+    } else {
+      // if user left it empty or invalid, fall back to previous value
+      setBuf(String(value));
+    }
+  };
+
+  const onKeyDown: React.KeyboardEventHandler<HTMLInputElement> = (e) => {
+    if (e.key === "Enter" || e.key === "Tab") commit();
+    if (e.key === "Escape") setBuf(String(value));
+  };
+
   return (
     <label className="flex items-center justify-between gap-3 text-sm">
       <span className="text-neutral-300">{label}</span>
       <input
-        type="number"
-        min={1}
-        max={10}
-        value={value}
-        onChange={(e) => onChange(clamp(Number(e.target.value)))}
+        // Use text + inputMode so iOS shows numeric keypad but allows empty string
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        value={buf}
+        onChange={(e) => {
+          // keep only digits; allow empty while typing
+          const digitsOnly = e.target.value.replace(/[^\d]/g, "");
+          setBuf(digitsOnly);
+        }}
+        onBlur={commit}
+        onKeyDown={onKeyDown}
+        onFocus={(e) => e.currentTarget.select()}
         className="w-20 text-center rounded-md border border-neutral-700 bg-neutral-800 px-2 py-1 text-neutral-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        aria-label={`${label} (1 à 10)`}
       />
     </label>
   );
