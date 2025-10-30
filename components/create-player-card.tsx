@@ -113,7 +113,6 @@ export default function CreatePlayerCard() {
             </select>
           </label>
 
-          <NumberField label="Mood (1..10)" value={mood} onChange={setMood} />
           <NumberField label="Service" value={service} onChange={setService} />
           <NumberField label="Réception" value={reception} onChange={setReception} />
           <NumberField label="Passe" value={passing} onChange={setPassing} />
