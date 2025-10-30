@@ -218,12 +218,6 @@ function EditPanel({
             </select>
           </label>
 
-          <NoteInput
-            label="Mood (1..10)"
-            value={form.mood ?? 5}
-            onChange={(v) => setField("mood", v)}
-          />
-
           <div className="mt-4 space-y-3 rounded-xl border border-neutral-800 bg-neutral-900 p-4">
             <div className="text-neutral-200 font-medium">Catégories (1..10)</div>
             <NoteInput label="Service"   value={form.categories.service}   onChange={(v) => setCat("service", v)} />
