@@ -96,13 +96,8 @@ function NoteInput({
   value: number;           // 1..10
   onChange: (v: number) => void;
 }) {
-  // keep a local string buffer so the user can clear, paste, etc.
   const [buf, setBuf] = useState<string>(String(value));
-
-  // if parent value changes from outside, sync buffer
-  useEffect(() => {
-    setBuf(String(value));
-  }, [value]);
+  useEffect(() => setBuf(String(value)), [value]);
 
   const clamp = (n: number) => Math.max(1, Math.min(10, Math.round(n)));
 
@@ -111,7 +106,6 @@ function NoteInput({
     if (Number.isFinite(n)) {
       onChange(clamp(n));
     } else {
-      // if user left it empty or invalid, fall back to previous value
       setBuf(String(value));
     }
   };
@@ -125,13 +119,11 @@ function NoteInput({
     <label className="flex items-center justify-between gap-3 text-sm">
       <span className="text-neutral-300">{label}</span>
       <input
-        // Use text + inputMode so iOS shows numeric keypad but allows empty string
         type="text"
         inputMode="numeric"
         pattern="[0-9]*"
         value={buf}
         onChange={(e) => {
-          // keep only digits; allow empty while typing
           const digitsOnly = e.target.value.replace(/[^\d]/g, "");
           setBuf(digitsOnly);
         }}
@@ -160,10 +152,7 @@ function EditPanel({
   saving: boolean;
 }) {
   const [form, setForm] = useState<PlayerFromDb | null>(player);
-
-  // keep form in sync when player changes
   useEffect(() => setForm(player), [player]);
-
   if (!open || !form) return null;
 
   const setCat = (k: keyof Categories, v: number) =>
@@ -172,18 +161,11 @@ function EditPanel({
   const setField = <K extends keyof PlayerFromDb>(k: K, v: PlayerFromDb[K]) =>
     setForm({ ...form, [k]: v });
 
-  const submit = async () => {
-    await onSave(form);
-  };
+  const submit = async () => { await onSave(form); };
 
   return (
     <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/50 z-40"
-        onClick={onClose}
-      />
-      {/* Panel */}
+      <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
       <div className="fixed right-0 top-0 h-full w-full sm:w-[480px] z-50 bg-neutral-900 border-l border-neutral-800 shadow-2xl p-5 overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-white">Modifier le joueur</h3>
@@ -281,13 +263,20 @@ export default function PlayerPicker() {
   // bulk busy
   const [bulkBusy, setBulkBusy] = useState(false);
 
-  // --- Tri ---
+  // --- Tri (affichage du tableau) ---
   type SortKey = "name" | "service" | "reception" | "passing" | "smash" | "defence" | "bloc";
   type SortDir = "asc" | "desc";
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
-  // helper flèche tri
+  // --- Mode d’équilibrage des équipes ---
+  type BalanceMode = "overall" | "perCategory" | "hybrid";
+  const [balanceMode, setBalanceMode] = useState<BalanceMode>("perCategory");
+  const [hybridAlpha, setHybridAlpha] = useState<number>(0.3);
+
+  // 🔘 bouton pour montrer / cacher les moyennes
+  const [showAverages, setShowAverages] = useState<boolean>(false);
+
   const Arrow = ({ k }: { k: SortKey }) =>
     sortKey !== k ? null : <span className="ml-1">{sortDir === "asc" ? "↑" : "↓"}</span>;
 
@@ -298,7 +287,6 @@ export default function PlayerPicker() {
   const visible = useMemo(() => {
     const f = filter.trim().toLowerCase();
     const base = !f ? players : players.filter((p) => p.name.toLowerCase().includes(f));
-
     const factor = sortDir === "asc" ? 1 : -1;
 
     const getVal = (p: PlayerFromDb): string | number => {
@@ -367,7 +355,14 @@ export default function PlayerPicker() {
   const generate = () => {
     try {
       setError(null);
-      const result = buildBalancedMixedTeams(chosen, { numTeams, femaleFirst: true, moodWeight: 0, lambdaMood: 0 });
+      const result = buildBalancedMixedTeams(chosen, {
+        numTeams,
+        femaleFirst: true,
+        moodWeight: 0,
+        lambdaMood: 0,
+        balanceMode,
+        hybridAlpha,
+      });
       setTeams(result);
       setTimeout(() => {
         resultRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -418,7 +413,7 @@ export default function PlayerPicker() {
           />
         </div>
 
-        {/* Paramètres */}
+        {/* Paramètres (tri + nb équipes) */}
         <div className="space-y-3">
           <h2 className="hidden md:block font-semibold">Paramètres</h2>
           <StepperInput
@@ -429,7 +424,6 @@ export default function PlayerPicker() {
             max={99}
           />
 
-          {/* --- Contrôles de tri --- */}
           <div className="space-y-2 pt-2">
             <label className="flex items-center justify-between gap-3 text-sm">
               <span className="text-neutral-300">Trier par</span>
@@ -463,7 +457,43 @@ export default function PlayerPicker() {
         </div>
 
         {/* Actions */}
-        <div className="flex flex-col justify-end gap-2">
+        <div className="flex flex-col justify-end gap-3">
+          {/* Équilibrage des équipes au-dessus de "Générer les équipes" */}
+          <div className="space-y-2 rounded-2xl border border-neutral-800 bg-neutral-950/60 p-3 text-sm">
+            <h3 className="font-medium text-neutral-200">Équilibrage des équipes</h3>
+            <label className="flex items-center justify-between gap-3">
+              <span className="text-neutral-300">Mode</span>
+              <select
+                value={balanceMode}
+                onChange={(e) => setBalanceMode(e.target.value as BalanceMode)}
+                className="w-40 rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-neutral-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                title="overall = global; perCategory = par catégorie; hybrid = mix des deux"
+              >
+                <option value="perCategory">Par catégorie</option>
+                <option value="overall">Global</option>
+                <option value="hybrid">Hybride</option>
+              </select>
+            </label>
+
+            {balanceMode === "hybrid" && (
+              <label className="flex items-center justify-between gap-3">
+                <span className="text-neutral-300">hybridAlpha (0..1)</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={hybridAlpha}
+                  onChange={(e) =>
+                    setHybridAlpha(Math.max(0, Math.min(1, Number(e.target.value) || 0)))
+                  }
+                  className="w-24 text-center rounded-md border border-neutral-700 bg-neutral-800 px-2 py-1 text-neutral-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  title="0 = 100% catégorie / 1 = 100% global"
+                />
+              </label>
+            )}
+          </div>
+
           <button
             onClick={generate}
             className="rounded-xl border border-neutral-700 bg-indigo-600/90 text-white px-3 py-2 text-sm hover:bg-indigo-600 disabled:opacity-50 cursor-pointer"
@@ -620,24 +650,102 @@ export default function PlayerPicker() {
 
       {/* Résultats équipes */}
       {teams && (
-        <section ref={resultRef} className="grid md:grid-cols-2 gap-4">
-          {teams.map((t, i) => (
-            <div
-              key={i}
-              className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4 shadow-sm"
+        <section ref={resultRef} className="space-y-3">
+          {/* bouton show/hide moyennes */}
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setShowAverages((v) => !v)}
+              className="text-xs rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1 text-neutral-200 hover:bg-neutral-800 cursor-pointer"
             >
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-lg font-semibold">Équipe {i + 1}</h3>
-              </div>
-              <ul className="text-sm divide-y divide-neutral-800 grid grid-cols-2">
-                {t.members.map((m) => (
-                  <li key={m.id} className="py-2">
-                    {m.name}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
+              {showAverages ? "Masquer les notes moyennes" : "Afficher les notes moyennes"}
+            </button>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-4">
+            {teams.map((t, i) => {
+              const size = t.members.length || 1;
+              const avg = {
+                service:
+                  t.members.reduce((s, m) => s + m.categories.service, 0) / size,
+                reception:
+                  t.members.reduce((s, m) => s + m.categories.reception, 0) / size,
+                passing:
+                  t.members.reduce((s, m) => s + m.categories.passing, 0) / size,
+                smash:
+                  t.members.reduce((s, m) => s + m.categories.smash, 0) / size,
+                defence:
+                  t.members.reduce((s, m) => s + m.categories.defence, 0) / size,
+                bloc:
+                  t.members.reduce((s, m) => s + m.categories.bloc, 0) / size,
+              };
+
+              return (
+                <div
+                  key={i}
+                  className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4 shadow-sm"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-lg font-semibold">
+                      Équipe {i + 1}
+                    </h3>
+                    <span className="text-xs text-neutral-400">
+                      {size} joueur(s)
+                    </span>
+                  </div>
+
+                  {showAverages && (
+                    <div className="mb-3 text-[11px] text-neutral-400 grid grid-cols-3 gap-y-0.5 gap-x-3">
+                      <span>
+                        Serv.{" "}
+                        <span className="text-neutral-100 font-medium">
+                          {avg.service.toFixed(1)}
+                        </span>
+                      </span>
+                      <span>
+                        Récep.{" "}
+                        <span className="text-neutral-100 font-medium">
+                          {avg.reception.toFixed(1)}
+                        </span>
+                      </span>
+                      <span>
+                        Passe{" "}
+                        <span className="text-neutral-100 font-medium">
+                          {avg.passing.toFixed(1)}
+                        </span>
+                      </span>
+                      <span>
+                        Attaq.{" "}
+                        <span className="text-neutral-100 font-medium">
+                          {avg.smash.toFixed(1)}
+                        </span>
+                      </span>
+                      <span>
+                        Déf.{" "}
+                        <span className="text-neutral-100 font-medium">
+                          {avg.defence.toFixed(1)}
+                        </span>
+                      </span>
+                      <span>
+                        Bloc{" "}
+                        <span className="text-neutral-100 font-medium">
+                          {avg.bloc.toFixed(1)}
+                        </span>
+                      </span>
+                    </div>
+                  )}
+
+                  <ul className="text-sm divide-y divide-neutral-800 grid grid-cols-2">
+                    {t.members.map((m) => (
+                      <li key={m.id} className="py-2">
+                        {m.name}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
         </section>
       )}
 
