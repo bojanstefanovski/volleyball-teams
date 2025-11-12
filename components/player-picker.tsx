@@ -435,7 +435,7 @@ export default function PlayerPicker() {
               <span className="text-neutral-300">Trier par</span>
               <select
                 value={sortKey}
-                onChange={(e) => setSortKey(e.target.value as any)}
+                onChange={(e) => setSortKey(e.target.value as SortKey)}
                 className="w-40 rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-neutral-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="name">Nom</option>
@@ -560,7 +560,7 @@ export default function PlayerPicker() {
                     {k === "smash" && "Attaque"}
                     {k === "defence" && "Défense"}
                     {k === "bloc" && "Bloc"}
-                    <Arrow k={k as any} />
+                    <Arrow k={k} />
                   </th>
                 ))}
 
