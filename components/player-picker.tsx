@@ -266,8 +266,7 @@ export default function PlayerPicker() {
   const playersFromDb = useQuery(api.players.list, { onlyChecked: false });
   const toggleCheckedMut = useMutation(api.players.toggleChecked);
   const upsertOneMut = useMutation(api.players.upsertOne);
-  // (optionnel) backend bulk:
-  const uncheckAllMut = useMutation(api.players.uncheckAll); // -> si tu ajoutes la mutation backend fournie plus bas
+  const uncheckAllMut = useMutation(api.players.uncheckAll);
 
   const [filter, setFilter] = useState("");
   const [numTeams, setNumTeams] = useState<number>(4);
@@ -282,14 +281,46 @@ export default function PlayerPicker() {
   // bulk busy
   const [bulkBusy, setBulkBusy] = useState(false);
 
+  // --- Tri ---
+  type SortKey = "name" | "service" | "reception" | "passing" | "smash" | "defence" | "bloc";
+  type SortDir = "asc" | "desc";
+  const [sortKey, setSortKey] = useState<SortKey>("name");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  // helper flèche tri
+  const Arrow = ({ k }: { k: SortKey }) =>
+    sortKey !== k ? null : <span className="ml-1">{sortDir === "asc" ? "↑" : "↓"}</span>;
+
   const loading = playersFromDb === undefined;
   const players: PlayerFromDb[] = playersFromDb ?? [];
 
+  // filtre + tri
   const visible = useMemo(() => {
     const f = filter.trim().toLowerCase();
-    if (!f) return players;
-    return players.filter((p) => p.name.toLowerCase().includes(f));
-  }, [players, filter]);
+    const base = !f ? players : players.filter((p) => p.name.toLowerCase().includes(f));
+
+    const factor = sortDir === "asc" ? 1 : -1;
+
+    const getVal = (p: PlayerFromDb): string | number => {
+      if (sortKey === "name") return p.name;
+      return p.categories[sortKey];
+    };
+
+    return [...base].sort((a, b) => {
+      const va = getVal(a);
+      const vb = getVal(b);
+      if (typeof va === "string" && typeof vb === "string") {
+        const cmp = va.localeCompare(vb, "fr", { sensitivity: "base" });
+        if (cmp !== 0) return factor * cmp;
+        return a.name.localeCompare(b.name, "fr", { sensitivity: "base" });
+      } else {
+        const na = Number(va);
+        const nb = Number(vb);
+        if (nb !== na) return factor * (na - nb);
+        return a.name.localeCompare(b.name, "fr", { sensitivity: "base" });
+      }
+    });
+  }, [players, filter, sortKey, sortDir]);
 
   const chosen = useMemo(() => players.filter((p) => p.checked), [players]);
 
@@ -354,12 +385,6 @@ export default function PlayerPicker() {
     if (!ok) return;
     setBulkBusy(true);
     try {
-      // Option 1 (simple, déjà OK sans backend extra) :
-      // await Promise.allSettled(
-      //   chosen.map((p) => toggleCheckedMut({ _id: p._id, checked: false }))
-      // );
-
-      // Option 2 (plus rapide, 1 mutation) : nécessite la mutation backend players.uncheckAll ci-dessous
       await uncheckAllMut();
     } finally {
       setBulkBusy(false);
@@ -403,6 +428,38 @@ export default function PlayerPicker() {
             min={1}
             max={99}
           />
+
+          {/* --- Contrôles de tri --- */}
+          <div className="space-y-2 pt-2">
+            <label className="flex items-center justify-between gap-3 text-sm">
+              <span className="text-neutral-300">Trier par</span>
+              <select
+                value={sortKey}
+                onChange={(e) => setSortKey(e.target.value as any)}
+                className="w-40 rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-neutral-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="name">Nom</option>
+                <option value="service">Service</option>
+                <option value="reception">Réception</option>
+                <option value="passing">Passe</option>
+                <option value="smash">Attaque</option>
+                <option value="defence">Défense</option>
+                <option value="bloc">Bloc</option>
+              </select>
+            </label>
+
+            <label className="flex items-center justify-between gap-3 text-sm">
+              <span className="text-neutral-300">Ordre</span>
+              <button
+                type="button"
+                onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+                className="w-40 rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-neutral-100 hover:bg-neutral-700 cursor-pointer"
+                title="Inverser l’ordre"
+              >
+                {sortDir === "asc" ? "Croissant ↑" : "Décroissant ↓"}
+              </button>
+            </label>
+          </div>
         </div>
 
         {/* Actions */}
@@ -473,14 +530,40 @@ export default function PlayerPicker() {
             <thead>
               <tr className="text-neutral-400">
                 <th className="px-2 py-2">✔</th>
-                <th className="text-left px-2 py-2">Nom</th>
+
+                <th
+                  className="text-left px-2 py-2 cursor-pointer select-none"
+                  onClick={() => {
+                    setSortKey("name");
+                    setSortDir(sortKey === "name" && sortDir === "desc" ? "asc" : "desc");
+                  }}
+                  title="Trier par nom"
+                >
+                  Nom <Arrow k="name" />
+                </th>
+
                 <th className="text-left px-2 py-2">Sexe</th>
-                <th className="text-right px-2 py-2">Service</th>
-                <th className="text-right px-2 py-2">Réception</th>
-                <th className="text-right px-2 py-2">Passe</th>
-                <th className="text-right px-2 py-2">Attaque</th>
-                <th className="text-right px-2 py-2">Défense</th>
-                <th className="text-right px-2 py-2">Bloc</th>
+
+                {(["service","reception","passing","smash","defence","bloc"] as const).map((k) => (
+                  <th
+                    key={k}
+                    className="text-right px-2 py-2 cursor-pointer select-none"
+                    onClick={() => {
+                      setSortKey(k);
+                      setSortDir(sortKey === k && sortDir === "desc" ? "asc" : "desc");
+                    }}
+                    title={`Trier par ${k}`}
+                  >
+                    {k === "service" && "Service"}
+                    {k === "reception" && "Réception"}
+                    {k === "passing" && "Passe"}
+                    {k === "smash" && "Attaque"}
+                    {k === "defence" && "Défense"}
+                    {k === "bloc" && "Bloc"}
+                    <Arrow k={k as any} />
+                  </th>
+                ))}
+
                 <th className="px-2 py-2 text-right">Actions</th>
               </tr>
             </thead>

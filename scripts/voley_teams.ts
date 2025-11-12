@@ -11,6 +11,12 @@ interface Categories {
   bloc: number;
 }
 
+export interface RankedPlayer extends Player {
+  score: number;        // score pondéré global
+  baseTotal: number;    // score sans mood
+  moodNorm: number;     // mood normalisé
+  rank: number;         // position dans le classement
+}
 export interface Player {
   id: string;
   name: string;
@@ -51,7 +57,7 @@ export interface BuildOptions {
 }
 
 // ---------------- Utils ----------------
-export const DEFAULT_WEIGHTS: WeightsTuple = [2, 3, 3, 6, 2, 3];
+export const DEFAULT_WEIGHTS: WeightsTuple = [2, 3, 3, 5, 2, 3];
 
 function assertRange(v: number, lo: number, hi: number, msg: string) {
   if (typeof v !== "number" || v < lo || v > hi) throw new Error(msg);
@@ -347,4 +353,36 @@ export function buildTeamsFromPlayers(players: Player[], opts: FrontBuildOptions
 export function buildTeamsFromJsonString(jsonString: string, opts: FrontBuildOptions = {}) {
   const players = JSON.parse(jsonString) as Player[];
   return buildTeamsFromPlayers(players, opts);
+}
+
+// ---------------- Ranking list ----------------
+
+
+export function buildRankingList(
+  players: Player[],
+  weights: WeightsTuple = DEFAULT_WEIGHTS,
+  moodWeight = 0.15
+): RankedPlayer[] {
+  // Calculer le score pondéré pour chaque joueur
+  const withScores = players.map((p) => {
+    const pv = playerVectorStrength(p, weights, moodWeight);
+    return {
+      ...p,
+      score: pv.total,
+      baseTotal: pv.baseTotal,
+      moodNorm: pv.moodNorm,
+    };
+  });
+
+  // Tri descendant (score > smash > mood > nom)
+  withScores.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (b.categories.smash !== a.categories.smash)
+      return b.categories.smash - a.categories.smash;
+    if ((b.mood ?? 0) !== (a.mood ?? 0)) return (b.mood ?? 0) - (a.mood ?? 0);
+    return a.name.localeCompare(b.name);
+  });
+
+  // Ajouter le rang
+  return withScores.map((p, i) => ({ ...p, rank: i + 1 }));
 }
