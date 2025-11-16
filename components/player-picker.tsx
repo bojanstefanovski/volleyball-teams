@@ -1,12 +1,16 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
+import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { Id } from "../convex/_generated/dataModel";
 import { buildBalancedMixedTeams } from "../scripts/voley_teams";
+import { SessionDetail } from "./session-detail";
+import { SessionsHistory } from "./sessions-history";
 
-/** Domain types used by the algo */
+/** Domain types used by l'algo */
 type Gender = "M" | "F";
 type Categories = {
   service: number;
@@ -86,14 +90,14 @@ function StepperInput({
   );
 }
 
-/** Small helper for 1..10 numeric inputs */
+/** Small helper pour 1..10 avec buffer (mobile friendly) */
 function NoteInput({
   label,
   value,
   onChange,
 }: {
   label: string;
-  value: number;           // 1..10
+  value: number; // 1..10
   onChange: (v: number) => void;
 }) {
   const [buf, setBuf] = useState<string>(String(value));
@@ -161,7 +165,9 @@ function EditPanel({
   const setField = <K extends keyof PlayerFromDb>(k: K, v: PlayerFromDb[K]) =>
     setForm({ ...form, [k]: v });
 
-  const submit = async () => { await onSave(form); };
+  const submit = async () => {
+    await onSave(form);
+  };
 
   return (
     <>
@@ -202,12 +208,36 @@ function EditPanel({
 
           <div className="mt-4 space-y-3 rounded-xl border border-neutral-800 bg-neutral-900 p-4">
             <div className="text-neutral-200 font-medium">Catégories (1..10)</div>
-            <NoteInput label="Service"   value={form.categories.service}   onChange={(v) => setCat("service", v)} />
-            <NoteInput label="Réception" value={form.categories.reception} onChange={(v) => setCat("reception", v)} />
-            <NoteInput label="Passe"     value={form.categories.passing}   onChange={(v) => setCat("passing", v)} />
-            <NoteInput label="Attaque"   value={form.categories.smash}     onChange={(v) => setCat("smash", v)} />
-            <NoteInput label="Défense"   value={form.categories.defence}   onChange={(v) => setCat("defence", v)} />
-            <NoteInput label="Bloc"      value={form.categories.bloc}      onChange={(v) => setCat("bloc", v)} />
+            <NoteInput
+              label="Service"
+              value={form.categories.service}
+              onChange={(v) => setCat("service", v)}
+            />
+            <NoteInput
+              label="Réception"
+              value={form.categories.reception}
+              onChange={(v) => setCat("reception", v)}
+            />
+            <NoteInput
+              label="Passe"
+              value={form.categories.passing}
+              onChange={(v) => setCat("passing", v)}
+            />
+            <NoteInput
+              label="Attaque"
+              value={form.categories.smash}
+              onChange={(v) => setCat("smash", v)}
+            />
+            <NoteInput
+              label="Défense"
+              value={form.categories.defence}
+              onChange={(v) => setCat("defence", v)}
+            />
+            <NoteInput
+              label="Bloc"
+              value={form.categories.bloc}
+              onChange={(v) => setCat("bloc", v)}
+            />
           </div>
 
           <label className="flex items-center gap-2 text-sm text-neutral-300">
@@ -241,6 +271,9 @@ function EditPanel({
   );
 }
 
+
+/* ===================== PLAYER PICKER ===================== */
+
 export default function PlayerPicker() {
   const resultRef = useRef<HTMLDivElement | null>(null);
 
@@ -250,43 +283,65 @@ export default function PlayerPicker() {
   const upsertOneMut = useMutation(api.players.upsertOne);
   const uncheckAllMut = useMutation(api.players.uncheckAll);
 
+  // 🔎 Séances / matchs
+  const createSessionMut = useMutation(api.sessions.createSessionWithTeams);
+
   const [filter, setFilter] = useState("");
   const [numTeams, setNumTeams] = useState<number>(4);
-  const [teams, setTeams] = useState<ReturnType<typeof buildBalancedMixedTeams> | null>(null);
+  const [teams, setTeams] =
+    useState<ReturnType<typeof buildBalancedMixedTeams> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // edit panel state
   const [editOpen, setEditOpen] = useState(false);
   const [editing, setEditing] = useState<PlayerFromDb | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // bulk busy
   const [bulkBusy, setBulkBusy] = useState(false);
 
-  // --- Tri (affichage du tableau) ---
-  type SortKey = "name" | "service" | "reception" | "passing" | "smash" | "defence" | "bloc";
+  // session courante affichée sous le générateur
+  const [currentSessionId, setCurrentSessionId] =
+    useState<Id<"sessions"> | null>(null);
+
+  // tri tableau
+  type SortKey =
+    | "name"
+    | "service"
+    | "reception"
+    | "passing"
+    | "smash"
+    | "defence"
+    | "bloc";
   type SortDir = "asc" | "desc";
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
-  // --- Mode d’équilibrage des équipes ---
+  // Mode d’équilibrage (si ton algo le gère côté options)
   type BalanceMode = "overall" | "perCategory" | "hybrid";
-  const [balanceMode, setBalanceMode] = useState<BalanceMode>("perCategory");
+  const [balanceMode, setBalanceMode] =
+    useState<BalanceMode>("perCategory");
   const [hybridAlpha, setHybridAlpha] = useState<number>(0.3);
 
-  // 🔘 bouton pour montrer / cacher les moyennes
   const [showAverages, setShowAverages] = useState<boolean>(false);
 
   const Arrow = ({ k }: { k: SortKey }) =>
-    sortKey !== k ? null : <span className="ml-1">{sortDir === "asc" ? "↑" : "↓"}</span>;
+    sortKey !== k ? null : (
+      <span className="ml-1">{sortDir === "asc" ? "↑" : "↓"}</span>
+    );
 
   const loading = playersFromDb === undefined;
-  const players: PlayerFromDb[] = playersFromDb ?? [];
+  
+  // Memoize players array to prevent unnecessary re-renders
+  const players = useMemo(
+    () => playersFromDb ?? [],
+    [playersFromDb]
+  );
 
   // filtre + tri
   const visible = useMemo(() => {
     const f = filter.trim().toLowerCase();
-    const base = !f ? players : players.filter((p) => p.name.toLowerCase().includes(f));
+    const base = !f
+      ? players
+      : players.filter((p) => p.name.toLowerCase().includes(f));
     const factor = sortDir === "asc" ? 1 : -1;
 
     const getVal = (p: PlayerFromDb): string | number => {
@@ -310,7 +365,10 @@ export default function PlayerPicker() {
     });
   }, [players, filter, sortKey, sortDir]);
 
-  const chosen = useMemo(() => players.filter((p) => p.checked), [players]);
+  const chosen = useMemo(
+    () => players.filter((p) => p.checked),
+    [players]
+  );
 
   const togglePlayer = async (player: PlayerFromDb) => {
     try {
@@ -355,14 +413,15 @@ export default function PlayerPicker() {
   const generate = () => {
     try {
       setError(null);
-      const result = buildBalancedMixedTeams(chosen, {
+      const result = buildBalancedMixedTeams(chosen as any, {
         numTeams,
         femaleFirst: true,
         moodWeight: 0,
         lambdaMood: 0,
+        // ces deux options sont ignorées par l'algo si non supportées
         balanceMode,
         hybridAlpha,
-      });
+      } as any);
       setTeams(result);
       setTimeout(() => {
         resultRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -371,6 +430,33 @@ export default function PlayerPicker() {
       setError(e instanceof Error ? e.message : String(e));
       setTeams(null);
     }
+  };
+
+  // Sauvegarde de la séance + génération des matchs (round robin côté backend)
+  const saveSession = async () => {
+    if (!teams) return;
+    const label =
+      prompt(
+        "Nom de la séance ?",
+        "Séance du " + new Date().toLocaleDateString("fr-FR")
+      ) ?? "Séance";
+
+    // on construit { name, playerIds } pour chaque équipe
+    const payload = teams.map((t, idx) => ({
+      name: `Équipe ${idx + 1}`,
+      playerIds: t.members.map((m: any) => m._id as Id<"players">),
+    }));
+
+   const res = await createSessionMut({
+  name: label,
+  teams: payload,
+});
+
+    // si ta mutation retourne { sessionId, teams }
+    const sessionId = res.sessionId as Id<"sessions">;
+
+    alert("Séance sauvegardée (matchs créés).");
+    setCurrentSessionId(sessionId);
   };
 
   // === Tout décocher ===
@@ -392,7 +478,9 @@ export default function PlayerPicker() {
       <header className="flex items-center justify-between sticky top-0 z-20 bg-neutral-900 p-2 md:static md:p-0">
         <div className="flex items-center gap-4 text-xs text-neutral-400">
           <div>
-            Présents: <b className="text-neutral-100">{chosen.length}</b> / {players.length}
+            Présents:{" "}
+            <b className="text-neutral-100">{chosen.length}</b> /{" "}
+            {players.length}
           </div>
           <div>
             Équipes: <b className="text-neutral-100">{numTeams}</b>
@@ -429,7 +517,9 @@ export default function PlayerPicker() {
               <span className="text-neutral-300">Trier par</span>
               <select
                 value={sortKey}
-                onChange={(e) => setSortKey(e.target.value as SortKey)}
+                onChange={(e) =>
+                  setSortKey(e.target.value as typeof sortKey)
+                }
                 className="w-40 rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-neutral-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="name">Nom</option>
@@ -446,7 +536,9 @@ export default function PlayerPicker() {
               <span className="text-neutral-300">Ordre</span>
               <button
                 type="button"
-                onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+                onClick={() =>
+                  setSortDir((d) => (d === "asc" ? "desc" : "asc"))
+                }
                 className="w-40 rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-neutral-100 hover:bg-neutral-700 cursor-pointer"
                 title="Inverser l’ordre"
               >
@@ -458,14 +550,18 @@ export default function PlayerPicker() {
 
         {/* Actions */}
         <div className="flex flex-col justify-end gap-3">
-          {/* Équilibrage des équipes au-dessus de "Générer les équipes" */}
+          {/* Équilibrage des équipes */}
           <div className="space-y-2 rounded-2xl border border-neutral-800 bg-neutral-950/60 p-3 text-sm">
-            <h3 className="font-medium text-neutral-200">Équilibrage des équipes</h3>
+            <h3 className="font-medium text-neutral-200">
+              Équilibrage des équipes
+            </h3>
             <label className="flex items-center justify-between gap-3">
               <span className="text-neutral-300">Mode</span>
               <select
                 value={balanceMode}
-                onChange={(e) => setBalanceMode(e.target.value as BalanceMode)}
+                onChange={(e) =>
+                  setBalanceMode(e.target.value as BalanceMode)
+                }
                 className="w-40 rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-neutral-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 title="overall = global; perCategory = par catégorie; hybrid = mix des deux"
               >
@@ -477,7 +573,9 @@ export default function PlayerPicker() {
 
             {balanceMode === "hybrid" && (
               <label className="flex items-center justify-between gap-3">
-                <span className="text-neutral-300">hybridAlpha (0..1)</span>
+                <span className="text-neutral-300">
+                  hybridAlpha (0..1)
+                </span>
                 <input
                   type="number"
                   min={0}
@@ -485,7 +583,12 @@ export default function PlayerPicker() {
                   step={0.05}
                   value={hybridAlpha}
                   onChange={(e) =>
-                    setHybridAlpha(Math.max(0, Math.min(1, Number(e.target.value) || 0)))
+                    setHybridAlpha(
+                      Math.max(
+                        0,
+                        Math.min(1, Number(e.target.value) || 0)
+                      )
+                    )
                   }
                   className="w-24 text-center rounded-md border border-neutral-700 bg-neutral-800 px-2 py-1 text-neutral-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   title="0 = 100% catégorie / 1 = 100% global"
@@ -502,23 +605,42 @@ export default function PlayerPicker() {
             Générer les équipes
           </button>
 
+          {teams && (
+            <button
+              onClick={saveSession}
+              className="rounded-xl border border-green-700 bg-green-600/90 text-white px-3 py-2 text-sm hover:bg-green-600 disabled:opacity-50 cursor-pointer"
+            >
+              💾 Sauvegarder la séance (+ matchs)
+            </button>
+          )}
+
           <button
             onClick={uncheckAll}
             className="rounded-xl border border-neutral-700 bg-neutral-800 text-neutral-200 px-3 py-2 text-sm hover:bg-neutral-700 disabled:opacity-50 cursor-pointer"
             disabled={loading || chosen.length === 0 || bulkBusy}
-            title={chosen.length === 0 ? "Aucun joueur coché" : "Décocher tous les joueurs cochés"}
+            title={
+              chosen.length === 0
+                ? "Aucun joueur coché"
+                : "Décocher tous les joueurs cochés"
+            }
           >
-            {bulkBusy ? "Décochage…" : `Tout décocher (${chosen.length})`}
+            {bulkBusy
+              ? "Décochage…"
+              : `Tout décocher (${chosen.length})`}
           </button>
 
-          {error && <div className="text-rose-400 text-sm">{error}</div>}
+          {error && (
+            <div className="text-rose-400 text-sm">{error}</div>
+          )}
         </div>
       </section>
 
       {/* ======== MOBILE: NOMS UNIQUEMENT ======== */}
       <section className="md:hidden rounded-2xl border border-neutral-800 bg-neutral-900 shadow-sm">
         {loading ? (
-          <div className="p-4 text-neutral-400 text-sm">Chargement…</div>
+          <div className="p-4 text-neutral-400 text-sm">
+            Chargement…
+          </div>
         ) : (
           <ul className="divide-y divide-neutral-800">
             {visible.map((p) => {
@@ -535,7 +657,9 @@ export default function PlayerPicker() {
                       onClick={() => togglePlayer(p)}
                       className="text-left flex-1 cursor-pointer"
                     >
-                      <span className="text-sm font-medium">{p.name}</span>
+                      <span className="text-sm font-medium">
+                        {p.name}
+                      </span>
                     </button>
                     <button
                       onClick={() => openEditor(p)}
@@ -554,7 +678,9 @@ export default function PlayerPicker() {
       {/* ======== DESKTOP: TABLEAU COMPLET ======== */}
       <section className="hidden md:block rounded-2xl border border-neutral-800 bg-neutral-900 p-4 shadow-sm overflow-x-auto">
         {loading ? (
-          <div className="p-2 text-neutral-400 text-sm">Chargement…</div>
+          <div className="p-2 text-neutral-400 text-sm">
+            Chargement…
+          </div>
         ) : (
           <table className="min-w-full text-sm">
             <thead>
@@ -565,7 +691,11 @@ export default function PlayerPicker() {
                   className="text-left px-2 py-2 cursor-pointer select-none"
                   onClick={() => {
                     setSortKey("name");
-                    setSortDir(sortKey === "name" && sortDir === "desc" ? "asc" : "desc");
+                    setSortDir(
+                      sortKey === "name" && sortDir === "desc"
+                        ? "asc"
+                        : "desc"
+                    );
                   }}
                   title="Trier par nom"
                 >
@@ -574,13 +704,26 @@ export default function PlayerPicker() {
 
                 <th className="text-left px-2 py-2">Sexe</th>
 
-                {(["service","reception","passing","smash","defence","bloc"] as const).map((k) => (
+                {(
+                  [
+                    "service",
+                    "reception",
+                    "passing",
+                    "smash",
+                    "defence",
+                    "bloc",
+                  ] as const
+                ).map((k) => (
                   <th
                     key={k}
                     className="text-right px-2 py-2 cursor-pointer select-none"
                     onClick={() => {
                       setSortKey(k);
-                      setSortDir(sortKey === k && sortDir === "desc" ? "asc" : "desc");
+                      setSortDir(
+                        sortKey === k && sortDir === "desc"
+                          ? "asc"
+                          : "desc"
+                      );
                     }}
                     title={`Trier par ${k}`}
                   >
@@ -615,7 +758,13 @@ export default function PlayerPicker() {
                       title="Présent"
                     />
                   </td>
-                  <td className={`px-2 py-2 ${p.checked ? "text-white" : ""}`}>{p.name}</td>
+                  <td
+                    className={`px-2 py-2 ${
+                      p.checked ? "text-white" : ""
+                    }`}
+                  >
+                    {p.name}
+                  </td>
                   <td className="px-2 py-2">
                     <span
                       className={`text-xs px-2 py-0.5 rounded ${
@@ -627,12 +776,24 @@ export default function PlayerPicker() {
                       {p.gender}
                     </span>
                   </td>
-                  <td className="px-2 py-2 text-right">{p.categories.service}</td>
-                  <td className="px-2 py-2 text-right">{p.categories.reception}</td>
-                  <td className="px-2 py-2 text-right">{p.categories.passing}</td>
-                  <td className="px-2 py-2 text-right">{p.categories.smash}</td>
-                  <td className="px-2 py-2 text-right">{p.categories.defence}</td>
-                  <td className="px-2 py-2 text-right">{p.categories.bloc}</td>
+                  <td className="px-2 py-2 text-right">
+                    {p.categories.service}
+                  </td>
+                  <td className="px-2 py-2 text-right">
+                    {p.categories.reception}
+                  </td>
+                  <td className="px-2 py-2 text-right">
+                    {p.categories.passing}
+                  </td>
+                  <td className="px-2 py-2 text-right">
+                    {p.categories.smash}
+                  </td>
+                  <td className="px-2 py-2 text-right">
+                    {p.categories.defence}
+                  </td>
+                  <td className="px-2 py-2 text-right">
+                    {p.categories.bloc}
+                  </td>
                   <td className="px-2 py-2 text-right">
                     <button
                       onClick={() => openEditor(p)}
@@ -651,14 +812,15 @@ export default function PlayerPicker() {
       {/* Résultats équipes */}
       {teams && (
         <section ref={resultRef} className="space-y-3">
-          {/* bouton show/hide moyennes */}
           <div className="flex justify-end">
             <button
               type="button"
               onClick={() => setShowAverages((v) => !v)}
               className="text-xs rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1 text-neutral-200 hover:bg-neutral-800 cursor-pointer"
             >
-              {showAverages ? "Masquer les notes moyennes" : "Afficher les notes moyennes"}
+              {showAverages
+                ? "Masquer les notes moyennes"
+                : "Afficher les notes moyennes"}
             </button>
           </div>
 
@@ -667,17 +829,35 @@ export default function PlayerPicker() {
               const size = t.members.length || 1;
               const avg = {
                 service:
-                  t.members.reduce((s, m) => s + m.categories.service, 0) / size,
+                  t.members.reduce(
+                    (s, m) => s + m.categories.service,
+                    0
+                  ) / size,
                 reception:
-                  t.members.reduce((s, m) => s + m.categories.reception, 0) / size,
+                  t.members.reduce(
+                    (s, m) => s + m.categories.reception,
+                    0
+                  ) / size,
                 passing:
-                  t.members.reduce((s, m) => s + m.categories.passing, 0) / size,
+                  t.members.reduce(
+                    (s, m) => s + m.categories.passing,
+                    0
+                  ) / size,
                 smash:
-                  t.members.reduce((s, m) => s + m.categories.smash, 0) / size,
+                  t.members.reduce(
+                    (s, m) => s + m.categories.smash,
+                    0
+                  ) / size,
                 defence:
-                  t.members.reduce((s, m) => s + m.categories.defence, 0) / size,
+                  t.members.reduce(
+                    (s, m) => s + m.categories.defence,
+                    0
+                  ) / size,
                 bloc:
-                  t.members.reduce((s, m) => s + m.categories.bloc, 0) / size,
+                  t.members.reduce(
+                    (s, m) => s + m.categories.bloc,
+                    0
+                  ) / size,
               };
 
               return (
@@ -749,6 +929,11 @@ export default function PlayerPicker() {
         </section>
       )}
 
+      {/* Vue de la séance créée (équipes + matchs) */}
+      {currentSessionId && (
+        <SessionDetail sessionId={currentSessionId} />
+      )}
+
       {/* Edit slide-over */}
       <EditPanel
         open={editOpen}
@@ -757,6 +942,8 @@ export default function PlayerPicker() {
         onSave={savePlayer}
         saving={saving}
       />
+
+      <SessionsHistory />
     </div>
   );
 }
