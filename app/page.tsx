@@ -21,7 +21,7 @@ export default function Home() {
             <div className="flex gap-0.5 sm:gap-1 overflow-x-auto">
               <button
                 onClick={() => setActiveTab("auto")}
-                className={`px-3 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
+                className={`px-3 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-medium transition-colors whitespace-nowrap cursor-pointer ${
                   activeTab === "auto"
                     ? "text-gray-900 dark:text-white border-b-2 border-indigo-500"
                     : "text-gray-600 dark:text-neutral-400 hover:text-gray-900 dark:hover:text-neutral-200"
@@ -32,7 +32,7 @@ export default function Home() {
               </button>
               <button
                 onClick={() => setActiveTab("manual")}
-                className={`px-3 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
+                className={`px-3 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-medium transition-colors whitespace-nowrap cursor-pointer ${
                   activeTab === "manual"
                     ? "text-gray-900 dark:text-white border-b-2 border-indigo-500"
                     : "text-gray-600 dark:text-neutral-400 hover:text-gray-900 dark:hover:text-neutral-200"
@@ -43,7 +43,7 @@ export default function Home() {
               </button>
               <button
                 onClick={() => setActiveTab("history")}
-                className={`px-3 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
+                className={`px-3 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-medium transition-colors whitespace-nowrap cursor-pointer ${
                   activeTab === "history"
                     ? "text-gray-900 dark:text-white border-b-2 border-indigo-500"
                     : "text-gray-600 dark:text-neutral-400 hover:text-gray-900 dark:hover:text-neutral-200"
@@ -53,7 +53,7 @@ export default function Home() {
               </button>
               <button
                 onClick={() => setActiveTab("admin")}
-                className={`px-3 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
+                className={`px-3 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-medium transition-colors whitespace-nowrap cursor-pointer ${
                   activeTab === "admin"
                     ? "text-gray-900 dark:text-white border-b-2 border-indigo-500"
                     : "text-gray-600 dark:text-neutral-400 hover:text-gray-900 dark:hover:text-neutral-200"

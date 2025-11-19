@@ -39,7 +39,7 @@ export function PlayerTableDesktop({
               <th className="px-2 py-2">✔</th>
 
               <th
-                className="text-left px-2 py-2 cursor-pointer select-none"
+                className="text-left px-2 py-2 cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-neutral-800/50"
                 onClick={() => onSort("name")}
                 title="Trier par nom"
               >
@@ -60,7 +60,7 @@ export function PlayerTableDesktop({
               ).map((k) => (
                 <th
                   key={k}
-                  className="text-right px-2 py-2 cursor-pointer select-none"
+                  className="text-right px-2 py-2 cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-neutral-800/50"
                   onClick={() => onSort(k)}
                   title={`Trier par ${k}`}
                 >

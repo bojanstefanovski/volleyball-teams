@@ -167,7 +167,7 @@ export default function ImportPlayersCard() {
         accept=".json,.xlsx,.xls"
         onChange={onFile}
         disabled={busy}
-        className="block w-full text-gray-700 dark:text-neutral-200 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-700 dark:hover:file:bg-indigo-500 disabled:opacity-60 cursor-pointer"
+        className="block w-full text-gray-700 dark:text-neutral-200 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-700 dark:hover:file:bg-indigo-500 file:cursor-pointer disabled:opacity-60 cursor-pointer"
       />
 
       {okCount !== null && !busy && (
