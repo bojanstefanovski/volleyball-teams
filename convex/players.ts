@@ -120,32 +120,6 @@ export const bulkUpsert = mutation({
   },
 });
 
-export const updatePlayerByName = mutation({
-  args: {
-    name: v.string(),
-    mood: v.optional(v.number()),
-    categories: v.optional(categoriesValidator),
-    checked: v.optional(v.boolean()),
-  },
-  handler: async (ctx, { name, mood, categories, checked }) => {
-    const existing = await ctx.db
-      .query("players")
-      .withIndex("by_name", (q) => q.eq("name", name))
-      .first();
-
-    if (!existing) {
-      throw new Error(`Player with name "${name}" not found`);
-    }
-
-    await ctx.db.patch(existing._id, {
-      ...(mood !== undefined ? { mood } : {}),
-      ...(categories ? { categories } : {}),
-      ...(checked !== undefined ? { checked } : {}),
-    });
-
-    return { ok: true as const, _id: existing._id };
-  },
-});
 
 export const uncheckAll = mutation({
   args: {},

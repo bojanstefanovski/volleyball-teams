@@ -16,19 +16,6 @@ export const setScore = mutation({
   },
 });
 
-export const setCourt = mutation({
-  args: {
-    matchId: v.id("session_matches"),
-    court: v.string(),
-  },
-  handler: async (ctx, { matchId, court }) => {
-    const match = await ctx.db.get(matchId);
-    if (!match) throw new Error("Match not found");
-    await ctx.db.patch(matchId, { court });
-    return { ok: true as const };
-  },
-});
-
 export const listBySession = query({
   args: { sessionId: v.id("sessions") },
   handler: async (ctx, { sessionId }) => {
