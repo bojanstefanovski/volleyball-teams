@@ -17,8 +17,8 @@ export default function Home() {
       {/* Navigation tabs */}
       <nav className="sticky top-0 z-30 bg-gray-50 dark:bg-neutral-900 border-b border-gray-200 dark:border-neutral-800">
         <div className="mx-auto max-w-7xl px-2 sm:px-4">
-          <div className="flex items-center justify-between">
-            <div className="flex gap-0.5 sm:gap-1 overflow-x-auto">
+          <div className="flex items-center justify-center gap-4">
+            <div className="flex gap-0.5 sm:gap-1">
               <button
                 onClick={() => setActiveTab("auto")}
                 className={`px-3 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-medium transition-colors whitespace-nowrap cursor-pointer ${
@@ -66,7 +66,7 @@ export default function Home() {
             {/* Theme toggle button */}
             <button
               onClick={toggleTheme}
-              className="ml-4 p-2 rounded-lg bg-gray-200 dark:bg-neutral-800 text-gray-700 dark:text-neutral-300 hover:bg-gray-300 dark:hover:bg-neutral-700 transition-colors"
+              className="p-2 rounded-lg bg-gray-200 dark:bg-neutral-800 text-gray-700 dark:text-neutral-300 hover:bg-gray-300 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
               aria-label="Toggle theme"
             >
               {theme === "dark" ? (

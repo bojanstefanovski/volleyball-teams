@@ -240,7 +240,7 @@ export default function PlayerPicker() {
                 onChange={(e) =>
                   setSortKey(e.target.value as typeof sortKey)
                 }
-                className="w-40 rounded-md border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-gray-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-40 rounded-md border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-gray-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
               >
                 <option value="name">Nom</option>
                 <option value="service">Service</option>
@@ -282,7 +282,7 @@ export default function PlayerPicker() {
                 onChange={(e) =>
                   setBalanceMode(e.target.value as BalanceMode)
                 }
-                className="w-40 rounded-md border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-gray-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-40 rounded-md border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-gray-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                 title="overall = global; perCategory = par catégorie; hybrid = mix des deux"
               >
                 <option value="perCategory">Par catégorie</option>

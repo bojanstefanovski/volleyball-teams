@@ -72,10 +72,6 @@ export function ManualSessionCreator() {
     });
   };
 
-  // Vérifier si un joueur est déjà assigné
-  const isPlayerAssigned = (playerId: Id<"players">) => {
-    return teams.some((team) => team.playerIds.includes(playerId));
-  };
 
   // Obtenir l'index de l'équipe d'un joueur
   const getPlayerTeamIndex = (playerId: Id<"players">) => {

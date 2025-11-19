@@ -77,7 +77,7 @@ export default function CreatePlayerCard() {
             <select
               value={gender}
               onChange={(e) => setGender(e.target.value as "M" | "F")}
-              className="rounded-lg border border-gray-300 dark:border-white/15 bg-white dark:bg-neutral-900/70 px-3 py-2 text-gray-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="rounded-lg border border-gray-300 dark:border-white/15 bg-white dark:bg-neutral-900/70 px-3 py-2 text-gray-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
             >
               <option value="M">M</option>
               <option value="F">F</option>
