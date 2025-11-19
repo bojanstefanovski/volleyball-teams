@@ -2,27 +2,9 @@
 
 import { useState } from "react";
 import { useAction } from "convex/react";
-import { api } from "../convex/_generated/api";
+import { api } from "../../convex/_generated/api";
 import * as XLSX from "xlsx";
-
-/** ===== Types ===== */
-type Gender = "M" | "F";
-
-type PlayerRow = {
-  id?: string;
-  name: string;
-  gender: Gender;
-  mood?: number;
-  categories: {
-    service: number;
-    reception: number;
-    passing: number;
-    smash: number;
-    defence: number;
-    bloc: number;
-  };
-  checked?: boolean;
-};
+import type { Gender, PlayerRow } from "../../lib/types";
 
 type RawRow = Record<string, unknown>;
 
@@ -168,16 +150,16 @@ export default function ImportPlayersCard() {
   };
 
   return (
-    <div className="rounded-2xl border border-white/15 bg-neutral-900/60 p-5 shadow-xl space-y-4">
+    <div className="rounded-2xl border border-gray-200 dark:border-white/15 bg-white dark:bg-neutral-900/60 p-5 shadow-xl space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-white text-lg font-semibold">Importer des joueurs</h3>
+        <h3 className="text-gray-900 dark:text-white text-lg font-semibold">Importer des joueurs</h3>
         {busy && (
-          <div className="h-4 w-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+          <div className="h-4 w-4 border-2 border-indigo-600 dark:border-indigo-400 border-t-transparent rounded-full animate-spin" />
         )}
       </div>
 
-      <p className="text-sm text-neutral-300">
-        Fichiers acceptés : <code>.json</code> (Player[]) ou <code>.xlsx/.xls</code>.
+      <p className="text-sm text-gray-600 dark:text-neutral-300">
+        Fichiers acceptés : <code className="bg-gray-100 dark:bg-neutral-800 px-1 py-0.5 rounded">.json</code> (Player[]) ou <code className="bg-gray-100 dark:bg-neutral-800 px-1 py-0.5 rounded">.xlsx/.xls</code>.
       </p>
 
       <input
@@ -185,17 +167,17 @@ export default function ImportPlayersCard() {
         accept=".json,.xlsx,.xls"
         onChange={onFile}
         disabled={busy}
-        className="block w-full text-neutral-200 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-500 disabled:opacity-60"
+        className="block w-full text-gray-700 dark:text-neutral-200 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-700 dark:hover:file:bg-indigo-500 disabled:opacity-60 cursor-pointer"
       />
 
       {okCount !== null && !busy && (
-        <div className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-emerald-300 text-sm">
+        <div className="rounded-lg border border-emerald-500/30 dark:border-emerald-400/30 bg-emerald-50 dark:bg-emerald-500/10 px-3 py-2 text-emerald-700 dark:text-emerald-300 text-sm">
           ✓ {okCount} joueur{okCount > 1 ? "s" : ""} importé
           {okCount > 1 ? "s" : ""}.
         </div>
       )}
       {errMsg && (
-        <div className="rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-rose-300 text-sm">
+        <div className="rounded-lg border border-rose-500/30 dark:border-rose-400/30 bg-rose-50 dark:bg-rose-500/10 px-3 py-2 text-rose-700 dark:text-rose-300 text-sm">
           Erreur : {errMsg}
         </div>
       )}
