@@ -59,3 +59,26 @@ export type SortKey =
 
 /** Direction de tri */
 export type SortDir = "asc" | "desc";
+
+
+export type Teammate = {
+  playerId: Id<"players">;
+  playerName: string;
+  playedTogether: number;
+  winsTogether: number;
+  lossesTogether: number;
+  winrateTogether: number;
+};
+
+export type PlayerStatsResult = {
+  playerId: Id<"players">;
+  summary: {
+    played: number;
+    wins: number;
+    losses: number;
+    winrate: number;
+  };
+  teammates: Teammate[];
+  goodTeammates: Teammate[];
+  badTeammates: Teammate[];
+};

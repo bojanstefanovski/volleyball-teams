@@ -188,3 +188,106 @@ export const playerStatsWithTeammates = query({
     };
   },
 });
+
+export const allPlayersStats = query({
+  args: {
+    sessionId: v.optional(v.id("sessions")),
+  },
+  handler: async (ctx, { sessionId }) => {
+    // Get all players
+    const players = await ctx.db.query("players").collect();
+    
+    // Get stats for each player
+    const allStats = await Promise.all(
+      players.map(async (player) => {
+        // 1. Get teams for this player
+        const allTeams = sessionId
+          ? await ctx.db
+              .query("session_teams")
+              .withIndex("by_session", (q) => q.eq("session_id", sessionId))
+              .collect()
+          : await ctx.db.query("session_teams").collect();
+
+        const playerTeams = allTeams.filter((t) =>
+          t.player_ids.some((id) => id === player._id)
+        );
+
+        if (playerTeams.length === 0) {
+          return {
+            playerId: player._id,
+            playerName: player.name,
+            played: 0,
+            wins: 0,
+            losses: 0,
+            winrate: 0,
+          };
+        }
+
+        const playerTeamIds = new Set(playerTeams.map((t) => t._id));
+
+        // 2. Get matches
+        const allMatches = sessionId
+          ? await ctx.db
+              .query("session_matches")
+              .withIndex("by_session", (q) => q.eq("session_id", sessionId))
+              .collect()
+          : await ctx.db.query("session_matches").collect();
+
+        const matches = allMatches.filter(
+          (m) =>
+            playerTeamIds.has(m.teamA_id) || playerTeamIds.has(m.teamB_id)
+        );
+
+        let played = 0;
+        let wins = 0;
+        let losses = 0;
+
+        const teamById = new Map(allTeams.map((t) => [t._id, t]));
+
+        for (const match of matches) {
+          if (match.scoreA == null || match.scoreB == null) continue;
+
+          const teamA = teamById.get(match.teamA_id);
+          const teamB = teamById.get(match.teamB_id);
+          if (!teamA || !teamB) continue;
+
+          const scoreA = match.scoreA;
+          const scoreB = match.scoreB;
+
+          const winner =
+            scoreA > scoreB ? "A" : scoreB > scoreA ? "B" : ("draw" as const);
+
+          const playerIsInA = teamA.player_ids.some((id) => id === player._id);
+          const playerIsInB = teamB.player_ids.some((id) => id === player._id);
+
+          if (!playerIsInA && !playerIsInB) continue;
+
+          played += 1;
+
+          if (winner === "A" && playerIsInA) {
+            wins += 1;
+          } else if (winner === "B" && playerIsInB) {
+            wins += 1;
+          } else if (winner === "A" && playerIsInB) {
+            losses += 1;
+          } else if (winner === "B" && playerIsInA) {
+            losses += 1;
+          }
+        }
+
+        const winrate = played > 0 ? wins / played : 0;
+
+        return {
+          playerId: player._id,
+          playerName: player.name,
+          played,
+          wins,
+          losses,
+          winrate,
+        };
+      })
+    );
+
+    return allStats.sort((a, b) => b.winrate - a.winrate);
+  },
+});
