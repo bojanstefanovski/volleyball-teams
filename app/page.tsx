@@ -6,10 +6,11 @@ import PlayerPicker from "../components/player-picker";
 import PlayersAdminContainer from "../components/admin";
 import { ManualSessionCreator } from "../components/manual-session-creator";
 import { SessionsHistory } from "../components/sessions/sessions-history";
+import { PlayerStats } from "../components/stats/player-stats";
 import { useTheme } from "../components/theme-provider";
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<"auto" | "manual" | "history" | "admin">("auto");
+  const [activeTab, setActiveTab] = useState<"auto" | "manual" | "history" | "stats" | "admin">("auto");
   const { theme, toggleTheme } = useTheme();
 
   return (
@@ -52,6 +53,17 @@ export default function Home() {
                 Historique
               </button>
               <button
+                onClick={() => setActiveTab("stats")}
+                className={`px-3 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-medium transition-colors whitespace-nowrap cursor-pointer ${
+                  activeTab === "stats"
+                    ? "text-gray-900 dark:text-white border-b-2 border-indigo-500"
+                    : "text-gray-600 dark:text-neutral-400 hover:text-gray-900 dark:hover:text-neutral-200"
+                }`}
+              >
+                <span className="hidden sm:inline">Statistiques</span>
+                <span className="sm:hidden">Stats</span>
+              </button>
+              <button
                 onClick={() => setActiveTab("admin")}
                 className={`px-3 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-medium transition-colors whitespace-nowrap cursor-pointer ${
                   activeTab === "admin"
@@ -92,6 +104,7 @@ export default function Home() {
             <SessionsHistory />
           </div>
         )}
+        {activeTab === "stats" && <PlayerStats />}
         {activeTab === "admin" && <PlayersAdminContainer />}
       </div>
     </div>
