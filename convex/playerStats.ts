@@ -1,4 +1,3 @@
-// convex/playerStats.ts
 import { v } from "convex/values";
 import { query } from "./_generated/server";
 import { Id } from "./_generated/dataModel";

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { SessionDetail } from "./session-detail";
@@ -10,6 +10,27 @@ export function SessionsHistory() {
   const sessions = useQuery(api.sessions.listSessions, {});
   const [selectedSession, setSelectedSession] =
     useState<Id<"sessions"> | null>(null);
+  const deleteSession = useMutation(api.sessions.deleteSession);
+  const [deletingId, setDeletingId] = useState<Id<"sessions"> | null>(null);
+
+  const handleDelete = async (sessionId: Id<"sessions">) => {
+    if (!confirm("Êtes-vous sûr de vouloir supprimer cette séance ? Cette action est irréversible.")) {
+      return;
+    }
+    
+    setDeletingId(sessionId);
+    try {
+      await deleteSession({ sessionId });
+      if (selectedSession === sessionId) {
+        setSelectedSession(null);
+      }
+    } catch (error) {
+      console.error("Erreur lors de la suppression:", error);
+      alert("Erreur lors de la suppression de la séance");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   if (sessions === undefined) {
     return (
@@ -47,12 +68,21 @@ export function SessionsHistory() {
                 Créée le {formatDateTime(s.createdAt)}
               </div>
             </div>
-            <button
-              onClick={() => setSelectedSession(s._id)}
-              className="px-3 py-1.5 rounded-md border border-gray-300 dark:border-neutral-700 text-sm text-gray-700 dark:text-neutral-200 hover:bg-gray-100 dark:hover:bg-neutral-800 cursor-pointer"
-            >
-              Voir
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setSelectedSession(s._id)}
+                className="px-3 py-1.5 rounded-md border border-gray-300 dark:border-neutral-700 text-sm text-gray-700 dark:text-neutral-200 hover:bg-gray-100 dark:hover:bg-neutral-800 cursor-pointer"
+              >
+                Voir
+              </button>
+              <button
+                onClick={() => handleDelete(s._id)}
+                disabled={deletingId === s._id}
+                className="px-3 py-1.5 rounded-md border border-rose-300 dark:border-rose-700 text-sm text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {deletingId === s._id ? "..." : "Supprimer"}
+              </button>
+            </div>
           </div>
         ))}
       </div>

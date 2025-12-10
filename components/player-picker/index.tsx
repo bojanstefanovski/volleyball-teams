@@ -7,12 +7,13 @@ import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { buildBalancedMixedTeams } from "../../scripts/voley_teams";
 import { SessionDetail } from "../sessions/session-detail";
-import type { PlayerFromDb, BalanceMode, SortKey, SortDir } from "../../lib/types";
+import type { PlayerFromDb, BalanceMode, SortKey, SortDir, PlayerConstraint } from "../../lib/types";
 import { StepperInput } from "../shared/stepper-input";
 import { EditPanel } from "./edit-panel";
 import { PlayerTableDesktop } from "./player-table-desktop";
 import { PlayerListMobile } from "./player-list-mobile";
 import { TeamsResult } from "./teams-result";
+import { ConstraintsManager } from "./constraints-manager";
 
 export default function PlayerPicker() {
   const resultRef = useRef<HTMLDivElement | null>(null);
@@ -52,6 +53,9 @@ export default function PlayerPicker() {
   const [hybridAlpha, setHybridAlpha] = useState<number>(0.3);
 
   const [showAverages, setShowAverages] = useState<boolean>(false);
+  
+  // Contraintes pour forcer des joueurs à jouer ensemble
+  const [constraints, setConstraints] = useState<PlayerConstraint[]>([]);
 
   const loading = playersFromDb === undefined;
   
@@ -145,6 +149,7 @@ export default function PlayerPicker() {
         lambdaMood: 0,
         balanceMode,
         hybridAlpha,
+        constraints,
       } as any);
       setTeams(result);
       setTimeout(() => {
@@ -209,9 +214,9 @@ export default function PlayerPicker() {
       </header>
 
       {/* Panneau contrôles */}
-      <section className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-gray-50 dark:bg-neutral-900 p-4 shadow-sm grid md:grid-cols-3 gap-6">
-        {/* Filtre */}
-        <div className="space-y-3">
+      <section className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-gray-50 dark:bg-neutral-900 p-4 shadow-sm grid md:grid-cols-3 gap-6 md:items-start">
+        {/* Filtre + Contraintes */}
+        <div className="space-y-3 md:self-start">
           <h2 className="hidden md:block font-semibold text-gray-900 dark:text-white">Filtrer & cocher</h2>
           <input
             value={filter}
@@ -219,10 +224,20 @@ export default function PlayerPicker() {
             placeholder="Rechercher par nom…"
             className="w-full rounded-md border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm text-gray-900 dark:text-neutral-100 placeholder-gray-400 dark:placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
+          
+          {/* Gestion des contraintes */}
+          <div className="rounded-2xl border border-gray-200 dark:border-neutral-800 bg-gray-100 dark:bg-neutral-950/60 p-3 max-h-96 overflow-y-auto">
+            <ConstraintsManager
+              players={players}
+              constraints={constraints}
+              onConstraintsChange={setConstraints}
+              numTeams={numTeams}
+            />
+          </div>
         </div>
 
         {/* Paramètres (tri + nb équipes) */}
-        <div className="space-y-3">
+        <div className="space-y-3 md:self-start">
           <h2 className="hidden md:block font-semibold text-gray-900 dark:text-white">Paramètres</h2>
           <StepperInput
             label="Nombre d'équipes"
@@ -269,7 +284,7 @@ export default function PlayerPicker() {
         </div>
 
         {/* Actions */}
-        <div className="flex flex-col justify-end gap-3">
+        <div className="flex flex-col gap-3 md:self-start">
           {/* Équilibrage des équipes */}
           <div className="space-y-2 rounded-2xl border border-gray-200 dark:border-neutral-800 bg-gray-100 dark:bg-neutral-950/60 p-3 text-sm">
             <h3 className="font-medium text-gray-900 dark:text-neutral-200">

@@ -36,6 +36,13 @@ export interface Team {
   moodSum: number;    // sum of moodNorm across members
 }
 
+export interface PlayerConstraint {
+  playerIds: string[]; // IDs des joueurs qui doivent jouer ensemble
+  label?: string; // Label optionnel pour identifier la contrainte
+  targetTeam?: number; // Numéro de l'équipe cible (1-based, optionnel)
+  preferredTeamSize?: number; // Taille d'équipe préférée (4, 5 ou 6 joueurs)
+}
+
 export interface BuildOptions {
   numTeams?: number;
   weights?: WeightsTuple;
@@ -53,6 +60,9 @@ export interface BuildOptions {
   balanceMode?: "overall" | "perCategory" | "hybrid";
   /** In hybrid: 0 = 100% per-category, 1 = 100% overall */
   hybridAlpha?: number;
+  
+  /** Contraintes pour forcer des joueurs à jouer ensemble */
+  constraints?: PlayerConstraint[];
 }
 
 export interface RankedPlayer extends Player {
@@ -246,6 +256,7 @@ export function buildBalancedMixedTeams(players: Player[], opts: BuildOptions = 
 
     balanceMode = "perCategory",
     hybridAlpha = 0.3,
+    constraints = [],
   } = opts;
 
   if (!numTeams) throw new Error("Spécifie numTeams (le nombre d'équipes).");
@@ -271,9 +282,93 @@ export function buildBalancedMixedTeams(players: Player[], opts: BuildOptions = 
 
   const teams: Team[] = Array.from({ length: K }, () => emptyTeam(6));
 
+  // (0) Handle constraints - place constrained players together first
+  const constrainedPlayerIds = new Set<string>();
+  if (constraints && constraints.length > 0) {
+    for (const constraint of constraints) {
+      // Validate constraint
+      if (!constraint.playerIds || constraint.playerIds.length < 2) {
+        console.warn(`Contrainte ignorée: doit contenir au moins 2 joueurs`, constraint);
+        continue;
+      }
+
+      // Get players for this constraint
+      const constraintPlayers = constraint.playerIds
+        .map(id => metaAll.find(m => m.p.id === id))
+        .filter(Boolean) as Array<{ p: Player; pv: PlayerVec }>;
+
+      if (constraintPlayers.length !== constraint.playerIds.length) {
+        console.warn(`Contrainte ignorée: certains joueurs n'ont pas été trouvés`, constraint);
+        continue;
+      }
+
+      let bestTeamIdx = -1;
+
+      // If targetTeam is specified, try to use it
+      if (constraint.targetTeam !== undefined && constraint.targetTeam >= 1 && constraint.targetTeam <= K) {
+        const targetIdx = constraint.targetTeam - 1; // Convert 1-based to 0-based
+        const spaceLeft = targetSizes[targetIdx] - teams[targetIdx].members.length;
+        
+        if (spaceLeft >= constraintPlayers.length) {
+          bestTeamIdx = targetIdx;
+        } else {
+          console.warn(`Équipe ${constraint.targetTeam} n'a pas assez d'espace pour la contrainte "${constraint.label || 'sans nom'}". Recherche d'une autre équipe...`);
+        }
+      }
+
+      // If preferredTeamSize is specified, try to find a team with that target size
+      if (bestTeamIdx === -1 && constraint.preferredTeamSize !== undefined) {
+        const preferredSize = constraint.preferredTeamSize;
+        let bestMatch = -1;
+        let bestSizeDiff = Infinity;
+
+        for (let t = 0; t < K; t++) {
+          const spaceLeft = targetSizes[t] - teams[t].members.length;
+          if (spaceLeft >= constraintPlayers.length) {
+            // Check if this team's target size matches the preferred size
+            const sizeDiff = Math.abs(targetSizes[t] - preferredSize);
+            if (sizeDiff < bestSizeDiff) {
+              bestSizeDiff = sizeDiff;
+              bestMatch = t;
+            }
+          }
+        }
+
+        if (bestMatch !== -1) {
+          bestTeamIdx = bestMatch;
+        }
+      }
+
+      // If no target team/size or not found, find team with most space
+      if (bestTeamIdx === -1) {
+        let bestSpace = -1;
+        for (let t = 0; t < K; t++) {
+          const spaceLeft = targetSizes[t] - teams[t].members.length;
+          if (spaceLeft >= constraintPlayers.length && spaceLeft > bestSpace) {
+            bestSpace = spaceLeft;
+            bestTeamIdx = t;
+          }
+        }
+      }
+
+      if (bestTeamIdx === -1) {
+        console.warn(`Impossible de placer la contrainte: pas assez d'espace dans les équipes`, constraint);
+        continue;
+      }
+
+      // Add all constrained players to the same team
+      for (const cp of constraintPlayers) {
+        addToTeam(teams[bestTeamIdx], cp.p, cp.pv);
+        constrainedPlayerIds.add(cp.p.id);
+      }
+    }
+  }
+
   // (1) Seed females first (greedy, small-first with strength tracking)
   if (femaleFirst && females.length > 0) {
-    const femSorted = [...females].sort((a, b) => b.pv.baseTotal - a.pv.baseTotal);
+    // Filter out already placed constrained players
+    const femalesNotConstrained = females.filter(f => !constrainedPlayerIds.has(f.p.id));
+    const femSorted = [...femalesNotConstrained].sort((a, b) => b.pv.baseTotal - a.pv.baseTotal);
     const femaleStrengthSum = Array<number>(K).fill(0);
 
     const teamHasFemaleCapacity = (t: number) =>
@@ -304,8 +399,11 @@ export function buildBalancedMixedTeams(players: Player[], opts: BuildOptions = 
     }
   }
 
-  // (2) Seed males according to strategy
-  const malesLeft = metaAll.filter(x => !teams.some(T => T.members.some(m => m.id === x.p.id)));
+  // (2) Seed males according to strategy (excluding already placed constrained players)
+  const malesLeft = metaAll.filter(x =>
+    !teams.some(T => T.members.some(m => m.id === x.p.id)) &&
+    !constrainedPlayerIds.has(x.p.id)
+  );
   const bias = Math.min(1, Math.max(0, maleSeedSmashBias));
   let metricFn: (x: { p: Player; pv: PlayerVec }) => number;
   if (maleSeedStrategy === "smash") {
@@ -330,9 +428,16 @@ export function buildBalancedMixedTeams(players: Player[], opts: BuildOptions = 
   );
 
   const pvById = new Map<string, PlayerVec>(metaAll.map(x => [x.p.id, x.pv]));
+  
+  // Helper to check if a player is part of a constraint
+  const isConstrained = (playerId: string): boolean => constrainedPlayerIds.has(playerId);
+  
   const pickIndexTeamWithGender = (t: Team, g: Gender): number => {
     const idxs: number[] = [];
-    t.members.forEach((m, i) => { if (m.gender === g) idxs.push(i); });
+    t.members.forEach((m, i) => {
+      // Don't pick constrained players for swapping
+      if (m.gender === g && !isConstrained(m.id)) idxs.push(i);
+    });
     if (idxs.length === 0) return -1;
     return idxs[Math.floor(Math.random() * idxs.length)];
   };

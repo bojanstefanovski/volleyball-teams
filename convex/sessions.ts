@@ -93,3 +93,35 @@ export const getSessionDetail = query({
     return { session, teams };
   },
 });
+
+// Supprimer une séance et toutes ses données associées
+export const deleteSession = mutation({
+  args: { sessionId: v.id("sessions") },
+  handler: async (ctx, { sessionId }) => {
+    // 1) Récupérer toutes les équipes de la séance
+    const teams = await ctx.db
+      .query("session_teams")
+      .withIndex("by_session", (q) => q.eq("session_id", sessionId))
+      .collect();
+
+    // 2) Supprimer tous les matchs de la séance
+    const matches = await ctx.db
+      .query("session_matches")
+      .withIndex("by_session", (q) => q.eq("session_id", sessionId))
+      .collect();
+    
+    for (const match of matches) {
+      await ctx.db.delete(match._id);
+    }
+
+    // 3) Supprimer toutes les équipes de la séance
+    for (const team of teams) {
+      await ctx.db.delete(team._id);
+    }
+
+    // 4) Supprimer la séance elle-même
+    await ctx.db.delete(sessionId);
+
+    return { success: true };
+  },
+});

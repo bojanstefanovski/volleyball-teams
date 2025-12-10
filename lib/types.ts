@@ -60,6 +60,13 @@ export type SortKey =
 /** Direction de tri */
 export type SortDir = "asc" | "desc";
 
+/** Contrainte pour forcer des joueurs à jouer ensemble */
+export type PlayerConstraint = {
+  playerIds: string[]; // IDs des joueurs qui doivent jouer ensemble
+  label?: string; // Label optionnel pour identifier la contrainte (ex: "Duo A")
+  targetTeam?: number; // Numéro de l'équipe cible (1-based, optionnel)
+  preferredTeamSize?: number; // Taille d'équipe préférée (4, 5 ou 6 joueurs)
+};
 
 export type Teammate = {
   playerId: Id<"players">;
