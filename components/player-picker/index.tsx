@@ -24,6 +24,9 @@ export default function PlayerPicker() {
   const upsertOneMut = useMutation(api.players.upsertOne);
   const uncheckAllMut = useMutation(api.players.uncheckAll);
 
+  // 🔎 Fetch performance stats
+  const performanceStatsFromDb = useQuery(api.playerStats.getPerformanceStats);
+
   // 🔎 Séances / matchs
   const createSessionMut = useMutation(api.sessions.createSessionWithTeams);
 
@@ -56,6 +59,9 @@ export default function PlayerPicker() {
   
   // Contraintes pour forcer des joueurs à jouer ensemble
   const [constraints, setConstraints] = useState<PlayerConstraint[]>([]);
+  
+  // Poids des statistiques de performance
+  const [performanceWeight, setPerformanceWeight] = useState<number>(0.2);
 
   const loading = playersFromDb === undefined;
   
@@ -142,6 +148,17 @@ export default function PlayerPicker() {
   const generate = () => {
     try {
       setError(null);
+      
+      // Convertir les stats de performance au format attendu par l'algorithme
+      const performanceStats = performanceStatsFromDb 
+        ? Object.fromEntries(
+            Object.entries(performanceStatsFromDb).map(([id, stats]) => [
+              id,
+              { winrate: stats.winrate, played: stats.played }
+            ])
+          )
+        : undefined;
+      
       const result = buildBalancedMixedTeams(chosen as any, {
         numTeams,
         femaleFirst: true,
@@ -150,6 +167,8 @@ export default function PlayerPicker() {
         balanceMode,
         hybridAlpha,
         constraints,
+        performanceStats,
+        performanceWeight,
       } as any);
       setTeams(result);
       setTimeout(() => {
@@ -330,6 +349,29 @@ export default function PlayerPicker() {
                 />
               </label>
             )}
+            
+            <label className="flex items-center justify-between gap-3">
+              <span className="text-gray-600 dark:text-neutral-300" title="Influence des statistiques de victoires/défaites sur l'équilibrage">
+                Poids perf. (0..1)
+              </span>
+              <input
+                type="number"
+                min={0}
+                max={1}
+                step={0.05}
+                value={performanceWeight}
+                onChange={(e) =>
+                  setPerformanceWeight(
+                    Math.max(
+                      0,
+                      Math.min(1, Number(e.target.value) || 0)
+                    )
+                  )
+                }
+                className="w-24 text-center rounded-md border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-2 py-1 text-gray-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                title="0 = pas d'influence / 1 = influence maximale des stats de performance"
+              />
+            </label>
           </div>
 
           <button

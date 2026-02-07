@@ -43,6 +43,13 @@ export interface PlayerConstraint {
   preferredTeamSize?: number; // Taille d'équipe préférée (4, 5 ou 6 joueurs)
 }
 
+export interface PerformanceStats {
+  [playerId: string]: {
+    winrate: number;
+    played: number;
+  };
+}
+
 export interface BuildOptions {
   numTeams?: number;
   weights?: WeightsTuple;
@@ -63,6 +70,11 @@ export interface BuildOptions {
   
   /** Contraintes pour forcer des joueurs à jouer ensemble */
   constraints?: PlayerConstraint[];
+  
+  /** Statistiques de performance historiques des joueurs */
+  performanceStats?: PerformanceStats;
+  /** Poids du facteur de performance (0..1, défaut 0.2) */
+  performanceWeight?: number;
 }
 
 export interface RankedPlayer extends Player {
@@ -88,7 +100,9 @@ function moodNorm(mood: number): number {
 function playerVectorStrength(
   p: Player,
   weights: WeightsTuple,
-  moodWeight: number
+  moodWeight: number,
+  performanceStats?: PerformanceStats,
+  performanceWeight = 0.2
 ): PlayerVec {
   const raw: number[] = [
     p.categories.service,
@@ -104,12 +118,28 @@ function playerVectorStrength(
   const vecWeighted = raw.map((v, i) => v * (weights[i] ?? 1));
   const baseTotal = vecWeighted.reduce((a, b) => a + b, 0);
   const m = p.mood ?? 5.5;
-  const total = baseTotal * (1 + moodWeight * moodNorm(m));
+  
+  // Intégrer les statistiques de performance si disponibles
+  let performanceFactor = 1;
+  if (performanceStats && performanceStats[p.id]) {
+    const stats = performanceStats[p.id];
+    // Si le joueur a joué au moins 3 matchs, on utilise son winrate
+    // Le winrate (0..1) est converti en facteur de performance (-1..+1)
+    // winrate 0.5 (50%) = facteur neutre (0)
+    // winrate 1.0 (100%) = facteur +1
+    // winrate 0.0 (0%) = facteur -1
+    if (stats.played >= 3) {
+      const performanceBonus = (stats.winrate - 0.5) * 2; // maps 0..1 to -1..+1
+      performanceFactor = 1 + performanceWeight * performanceBonus;
+    }
+  }
+  
+  const total = baseTotal * performanceFactor * (1 + moodWeight * moodNorm(m));
 
   return {
     total,
     vec: vecWeighted,
-    baseTotal,
+    baseTotal: baseTotal * performanceFactor,
     moodNorm: moodNorm(m),
     smashRaw: p.categories.smash,
   };
@@ -257,6 +287,8 @@ export function buildBalancedMixedTeams(players: Player[], opts: BuildOptions = 
     balanceMode = "perCategory",
     hybridAlpha = 0.3,
     constraints = [],
+    performanceStats,
+    performanceWeight = 0.2,
   } = opts;
 
   if (!numTeams) throw new Error("Spécifie numTeams (le nombre d'équipes).");
@@ -268,8 +300,11 @@ export function buildBalancedMixedTeams(players: Player[], opts: BuildOptions = 
   const rem = N % K;
   const targetSizes = Array.from({ length: K }, (_, i) => base + (i < rem ? 1 : 0));
 
-  // Pre-compute player vectors
-  const metaAll = players.map(p => ({ p, pv: playerVectorStrength(p, weights, moodWeight) }));
+  // Pre-compute player vectors with performance stats
+  const metaAll = players.map(p => ({ 
+    p, 
+    pv: playerVectorStrength(p, weights, moodWeight, performanceStats, performanceWeight) 
+  }));
   const females = metaAll.filter(x => x.p.gender === "F");
 
   // Target women per team (keeps the “one or more per team” logic)
@@ -522,12 +557,14 @@ export function buildRankingList(
   players: Player[],
   weights: WeightsTuple = DEFAULT_WEIGHTS,
   moodWeight = 0.15,
-  useWeightedAverage = false // if true, normalize by sum(weights) for ~1..10 scale
+  useWeightedAverage = false, // if true, normalize by sum(weights) for ~1..10 scale
+  performanceStats?: PerformanceStats,
+  performanceWeight = 0.2
 ): RankedPlayer[] {
   const weightSum = weights.reduce((a, b) => a + b, 0) || 1;
 
   const withScores = players.map((p) => {
-    const pv = playerVectorStrength(p, weights, moodWeight);
+    const pv = playerVectorStrength(p, weights, moodWeight, performanceStats, performanceWeight);
     const base = useWeightedAverage ? pv.baseTotal / weightSum : pv.baseTotal;
     const total = base * (1 + moodWeight * pv.moodNorm);
     return {

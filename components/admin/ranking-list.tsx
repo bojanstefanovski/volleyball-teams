@@ -27,10 +27,14 @@ export default function AllPlayersRankingList() {
   const loading = playersFromDb === undefined;
   const rows: PlayerRow[] = playersFromDb ?? [];
 
+  // Récupère les statistiques de performance
+  const performanceStatsFromDb = useQuery(api.playerStats.getPerformanceStats);
+
   // 2) Contrôles (Top N, weights, humeur)
   const [topN, setTopN] = useState<number>(20);
   const [moodWeight, setMoodWeight] = useState<number>(0.15);
   const [weights, setWeights] = useState<WeightsTuple>([...DEFAULT_WEIGHTS]);
+  const [performanceWeight, setPerformanceWeight] = useState<number>(0.2);
 
   const setW = (i: number, v: number) => {
     const copy = [...weights] as WeightsTuple;
@@ -48,8 +52,19 @@ export default function AllPlayersRankingList() {
       mood: r.mood,
       categories: r.categories,
     }));
-    return buildRankingList(base, weights, moodWeight).slice(0, Math.max(1, topN));
-  }, [rows, weights, moodWeight, topN]);
+    
+    // Convertir les stats de performance au format attendu
+    const performanceStats = performanceStatsFromDb 
+      ? Object.fromEntries(
+          Object.entries(performanceStatsFromDb).map(([id, stats]) => [
+            id,
+            { winrate: stats.winrate, played: stats.played }
+          ])
+        )
+      : undefined;
+    
+    return buildRankingList(base, weights, moodWeight, false, performanceStats, performanceWeight).slice(0, Math.max(1, topN));
+  }, [rows, weights, moodWeight, topN, performanceStatsFromDb, performanceWeight]);
 
   return (
     <div className="mx-auto max-w-6xl p-4 space-y-6 bg-white dark:bg-neutral-900 text-gray-900 dark:text-neutral-100">
@@ -70,7 +85,7 @@ export default function AllPlayersRankingList() {
         </div>
 
         <div className="space-y-3">
-          <h2 className="hidden md:block font-semibold text-gray-900 dark:text-white">Humeur</h2>
+          <h2 className="hidden md:block font-semibold text-gray-900 dark:text-white">Facteurs</h2>
           <WeightField
             label="moodWeight (0..1)"
             value={moodWeight}
@@ -79,12 +94,28 @@ export default function AllPlayersRankingList() {
             max={1}
             step={0.05}
           />
-          <button
-            onClick={() => setMoodWeight(0)}
-            className="rounded-md border border-gray-300 dark:border-neutral-700 px-2 py-1 text-xs text-gray-700 dark:text-neutral-200 hover:bg-gray-100 dark:hover:bg-neutral-800 cursor-pointer"
-          >
-            Ignorer l&apos;humeur
-          </button>
+          <WeightField
+            label="perfWeight (0..1)"
+            value={performanceWeight}
+            onChange={(v) => setPerformanceWeight(Math.max(0, Math.min(1, v)))}
+            min={0}
+            max={1}
+            step={0.05}
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={() => setMoodWeight(0)}
+              className="rounded-md border border-gray-300 dark:border-neutral-700 px-2 py-1 text-xs text-gray-700 dark:text-neutral-200 hover:bg-gray-100 dark:hover:bg-neutral-800 cursor-pointer"
+            >
+              Ignorer humeur
+            </button>
+            <button
+              onClick={() => setPerformanceWeight(0)}
+              className="rounded-md border border-gray-300 dark:border-neutral-700 px-2 py-1 text-xs text-gray-700 dark:text-neutral-200 hover:bg-gray-100 dark:hover:bg-neutral-800 cursor-pointer"
+            >
+              Ignorer perf.
+            </button>
+          </div>
         </div>
 
         <div className="space-y-3">

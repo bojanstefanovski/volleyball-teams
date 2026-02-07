@@ -290,3 +290,69 @@ export const allPlayersStats = query({
     return allStats.sort((a, b) => b.winrate - a.winrate);
   },
 });
+
+// Nouvelle query optimisée pour récupérer les stats de performance pour l'algorithme
+export const getPerformanceStats = query({
+  args: {},
+  handler: async (ctx) => {
+    const players = await ctx.db.query("players").collect();
+    const allTeams = await ctx.db.query("session_teams").collect();
+    const allMatches = await ctx.db.query("session_matches").collect();
+
+    // Build a map of player stats
+    const statsMap = new Map<Id<"players">, { winrate: number; played: number }>();
+
+    for (const player of players) {
+      const playerTeams = allTeams.filter((t) =>
+        t.player_ids.some((id) => id === player._id)
+      );
+
+      if (playerTeams.length === 0) {
+        statsMap.set(player._id, { winrate: 0.5, played: 0 }); // Default neutral winrate
+        continue;
+      }
+
+      const playerTeamIds = new Set(playerTeams.map((t) => t._id));
+      const matches = allMatches.filter(
+        (m) => playerTeamIds.has(m.teamA_id) || playerTeamIds.has(m.teamB_id)
+      );
+
+      let played = 0;
+      let wins = 0;
+
+      const teamById = new Map(allTeams.map((t) => [t._id, t]));
+
+      for (const match of matches) {
+        if (match.scoreA == null || match.scoreB == null) continue;
+
+        const teamA = teamById.get(match.teamA_id);
+        const teamB = teamById.get(match.teamB_id);
+        if (!teamA || !teamB) continue;
+
+        const scoreA = match.scoreA;
+        const scoreB = match.scoreB;
+        const winner = scoreA > scoreB ? "A" : scoreB > scoreA ? "B" : "draw";
+
+        const playerIsInA = teamA.player_ids.some((id) => id === player._id);
+        const playerIsInB = teamB.player_ids.some((id) => id === player._id);
+
+        if (!playerIsInA && !playerIsInB) continue;
+
+        played += 1;
+
+        if ((winner === "A" && playerIsInA) || (winner === "B" && playerIsInB)) {
+          wins += 1;
+        }
+      }
+
+      // Si le joueur n'a pas joué assez de matchs, on utilise un winrate neutre (0.5)
+      // Sinon on utilise son winrate réel
+      const winrate = played >= 3 ? wins / played : 0.5;
+      statsMap.set(player._id, { winrate, played });
+    }
+
+    return Object.fromEntries(
+      Array.from(statsMap.entries()).map(([id, stats]) => [id, stats])
+    );
+  },
+});
