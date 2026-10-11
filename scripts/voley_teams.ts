@@ -57,6 +57,8 @@ export interface BuildOptions {
   lambdaMood?: number;
   moodWeight?: number;
   swapIterations?: number;
+  /** Nombre de relances indépendantes de l'optimisation (on garde la meilleure) */
+  restarts?: number;
   femaleFirst?: boolean;
   attackPriorityFactor?: number;
 
@@ -138,7 +140,8 @@ function playerVectorStrength(
 
   return {
     total,
-    vec: vecWeighted,
+    // le facteur de performance s'applique aussi aux catégories, sinon il est ignoré en mode perCategory
+    vec: vecWeighted.map(v => v * performanceFactor),
     baseTotal: baseTotal * performanceFactor,
     moodNorm: moodNorm(m),
     smashRaw: p.categories.smash,
@@ -279,6 +282,7 @@ export function buildBalancedMixedTeams(players: Player[], opts: BuildOptions = 
     lambdaMood = 0.3,
     moodWeight = 0.15,
     swapIterations = 5000,
+    restarts = 6,
     femaleFirst = true,
     attackPriorityFactor = 2,
     maleSeedStrategy = "blend",
@@ -306,14 +310,6 @@ export function buildBalancedMixedTeams(players: Player[], opts: BuildOptions = 
     pv: playerVectorStrength(p, weights, moodWeight, performanceStats, performanceWeight) 
   }));
   const females = metaAll.filter(x => x.p.gender === "F");
-
-  // Target women per team (keeps the “one or more per team” logic)
-  const targetWomen: number[] = Array<number>(K).fill(0);
-  if (femaleFirst && females.length > 0) {
-    const baseF = Math.floor(females.length / K);
-    const remF = females.length % K;
-    for (let i = 0; i < K; i++) targetWomen[i] = baseF + (i < remF ? 1 : 0);
-  }
 
   const teams: Team[] = Array.from({ length: K }, () => emptyTeam(6));
 
@@ -374,13 +370,15 @@ export function buildBalancedMixedTeams(players: Player[], opts: BuildOptions = 
         }
       }
 
-      // If no target team/size or not found, find team with most space
+      // If no target team/size or not found, pick the weakest team (per slot) that has room
       if (bestTeamIdx === -1) {
-        let bestSpace = -1;
+        let bestStrength = Infinity;
         for (let t = 0; t < K; t++) {
           const spaceLeft = targetSizes[t] - teams[t].members.length;
-          if (spaceLeft >= constraintPlayers.length && spaceLeft > bestSpace) {
-            bestSpace = spaceLeft;
+          if (spaceLeft < constraintPlayers.length) continue;
+          const strength = teams[t].baseTotal / targetSizes[t];
+          if (strength < bestStrength) {
+            bestStrength = strength;
             bestTeamIdx = t;
           }
         }
@@ -399,36 +397,39 @@ export function buildBalancedMixedTeams(players: Player[], opts: BuildOptions = 
     }
   }
 
-  // (1) Seed females first (greedy, small-first with strength tracking)
+  // (1) Seed females first.
+  // Répartition cible: chaque femme va à l'équipe qui en a le moins; à égalité,
+  // la plus grande équipe d'abord. Les femmes placées par contrainte comptent déjà.
   if (femaleFirst && females.length > 0) {
-    // Filter out already placed constrained players
     const femalesNotConstrained = females.filter(f => !constrainedPlayerIds.has(f.p.id));
+
+    const targetWomen = teams.map(t => t.women);
+    const room = teams.map((t, i) => targetSizes[i] - t.members.length);
+    for (let n = 0; n < femalesNotConstrained.length; n++) {
+      let pick = -1;
+      for (let t = 0; t < K; t++) {
+        if (room[t] <= 0) continue;
+        if (
+          pick === -1 ||
+          targetWomen[t] < targetWomen[pick] ||
+          (targetWomen[t] === targetWomen[pick] && targetSizes[t] > targetSizes[pick])
+        ) pick = t;
+      }
+      if (pick === -1) break;
+      targetWomen[pick]++;
+      room[pick]--;
+    }
+
+    // Les plus fortes d'abord, chacune vers l'équipe (avec place) dont les femmes sont les moins fortes
     const femSorted = [...femalesNotConstrained].sort((a, b) => b.pv.baseTotal - a.pv.baseTotal);
     const femaleStrengthSum = Array<number>(K).fill(0);
-
-    const teamHasFemaleCapacity = (t: number) =>
-      targetWomen[t] > 0 ? teams[t].women < targetWomen[t] : true;
-
     for (const f of femSorted) {
-      const pool: number[] = [];
+      let pick = -1;
       for (let t = 0; t < K; t++) {
-        const sizeOk = teams[t].members.length < targetSizes[t];
-        const womenOk = teamHasFemaleCapacity(t);
-        if (sizeOk && womenOk) pool.push(t);
+        if (teams[t].women >= targetWomen[t]) continue;
+        if (pick === -1 || femaleStrengthSum[t] < femaleStrengthSum[pick]) pick = t;
       }
-      if (pool.length === 0) {
-        for (let t = 0; t < K; t++) {
-          if (teams[t].members.length < targetSizes[t]) pool.push(t);
-        }
-      }
-      const pick = pool.sort((a, b) => {
-        const dTarget = targetSizes[a] - targetSizes[b];
-        if (dTarget !== 0) return dTarget;
-        const dFem = femaleStrengthSum[a] - femaleStrengthSum[b];
-        if (dFem !== 0) return dFem;
-        return teams[a].members.length - teams[b].members.length;
-      })[0] ?? 0;
-
+      if (pick === -1) break;
       addToTeam(teams[pick], f.p, f.pv);
       femaleStrengthSum[pick] += f.pv.baseTotal;
     }
@@ -451,78 +452,141 @@ export function buildBalancedMixedTeams(players: Player[], opts: BuildOptions = 
   }
   seedByMetricSerpentine(teams, malesLeft, targetSizes, metricFn);
 
-  // (3) Local swaps with acceptance if cost improves
-  let bestCost = computeCost(
-    teams,
-    lambdaCat,
-    weights,
-    lambdaMood,
-    attackPriorityFactor,
-    balanceMode,
-    hybridAlpha
-  );
-
+  // (3) Optimisation: recuit simulé puis descente exhaustive sur les échanges, avec relances
   const pvById = new Map<string, PlayerVec>(metaAll.map(x => [x.p.id, x.pv]));
-  
-  // Helper to check if a player is part of a constraint
-  const isConstrained = (playerId: string): boolean => constrainedPlayerIds.has(playerId);
-  
-  const pickIndexTeamWithGender = (t: Team, g: Gender): number => {
-    const idxs: number[] = [];
-    t.members.forEach((m, i) => {
-      // Don't pick constrained players for swapping
-      if (m.gender === g && !isConstrained(m.id)) idxs.push(i);
+  const cost = (ts: Team[]) =>
+    computeCost(ts, lambdaCat, weights, lambdaMood, attackPriorityFactor, balanceMode, hybridAlpha);
+
+  const rebuild = (groups: Player[][]): Team[] =>
+    groups.map(g => {
+      const t = emptyTeam(6);
+      for (const p of g) addToTeam(t, p, pvById.get(p.id)!);
+      return t;
     });
-    if (idxs.length === 0) return -1;
-    return idxs[Math.floor(Math.random() * idxs.length)];
-  };
 
-  for (let it = 0; it < swapIterations; it++) {
-    const a = Math.floor(Math.random() * K);
-    let b = Math.floor(Math.random() * K);
-    if (a === b) b = (b + 1) % K;
+  const seedGroups = teams.map(t => [...t.members]);
+  let best = rebuild(seedGroups);
+  let bestCost = cost(best);
 
-    const ta = teams[a], tb = teams[b];
-    if (ta.members.length === 0 || tb.members.length === 0) continue;
-
-    // keep same-gender swaps to preserve female distribution behavior
-    const genre: Gender = Math.random() < 0.5 ? "F" : "M";
-    const ia = pickIndexTeamWithGender(ta, genre);
-    const ib = pickIndexTeamWithGender(tb, genre);
-    if (ia === -1 || ib === -1) continue;
-
-    const pa = ta.members[ia];
-    const pb = tb.members[ib];
-    const pva = pvById.get(pa.id)!;
-    const pvb = pvById.get(pb.id)!;
-
-    removeFromTeam(ta, ia, pva);
-    removeFromTeam(tb, ib, pvb);
-    addToTeam(ta, pb, pvb);
-    addToTeam(tb, pa, pva);
-
-    const newCost = computeCost(
-      teams,
-      lambdaCat,
-      weights,
-      lambdaMood,
-      attackPriorityFactor,
-      balanceMode,
-      hybridAlpha
-    );
-
-    if (newCost <= bestCost) {
-      bestCost = newCost;
-    } else {
-      // revert
-      removeFromTeam(ta, ta.members.length - 1, pvb);
-      removeFromTeam(tb, tb.members.length - 1, pva);
-      addToTeam(ta, pa, pva);
-      addToTeam(tb, pb, pvb);
+  for (let r = 0; r < Math.max(1, restarts); r++) {
+    const current = rebuild(seedGroups);
+    const runCost = optimizeSwaps(current, pvById, constrainedPlayerIds, cost, swapIterations);
+    if (runCost < bestCost) {
+      bestCost = runCost;
+      best = current;
     }
   }
 
-  return teams;
+  return best;
+}
+
+/** Échange les joueurs a (équipe ta) et b (équipe tb) aux indices ia / ib. */
+function swapPlayers(ta: Team, ia: number, tb: Team, ib: number, pvById: Map<string, PlayerVec>) {
+  const pa = ta.members[ia];
+  const pb = tb.members[ib];
+  const pva = pvById.get(pa.id)!;
+  const pvb = pvById.get(pb.id)!;
+  removeFromTeam(ta, ia, pva);
+  removeFromTeam(tb, ib, pvb);
+  // réinsérer à la même position pour garder les indices stables
+  ta.members.splice(ia, 0, pb);
+  tb.members.splice(ib, 0, pa);
+  addStats(ta, pb, pvb);
+  addStats(tb, pa, pva);
+}
+
+function addStats(team: Team, player: Player, pv: PlayerVec) {
+  team.total += pv.total;
+  team.baseTotal += pv.baseTotal;
+  for (let i = 0; i < team.catSums.length; i++) team.catSums[i] += pv.vec[i];
+  if (player.gender === "F") team.women++;
+  team.moodSum += pv.moodNorm;
+}
+
+/**
+ * Améliore la répartition en place par échanges de joueurs du même genre
+ * (les joueurs sous contrainte ne bougent pas). Retourne le coût final.
+ */
+function optimizeSwaps(
+  teams: Team[],
+  pvById: Map<string, PlayerVec>,
+  locked: Set<string>,
+  cost: (ts: Team[]) => number,
+  iterations: number
+): number {
+  const K = teams.length;
+  const movable = (p: Player) => !locked.has(p.id);
+
+  let cur = cost(teams);
+  let bestCost = cur;
+  let bestGroups = teams.map(t => [...t.members]);
+
+  // (a) Recuit simulé: accepte parfois une dégradation pour sortir des minima locaux
+  const T0 = Math.max(cur, 1e-6) * 0.05;
+  const Tend = T0 * 1e-3;
+  for (let it = 0; it < iterations; it++) {
+    const T = T0 * Math.pow(Tend / T0, it / Math.max(1, iterations - 1));
+    const a = Math.floor(Math.random() * K);
+    let b = Math.floor(Math.random() * (K - 1));
+    if (b >= a) b++;
+    const ta = teams[a], tb = teams[b];
+    const ia = Math.floor(Math.random() * ta.members.length);
+    if (ia < 0 || !ta.members[ia] || !movable(ta.members[ia])) continue;
+    const g = ta.members[ia].gender;
+    const candidates: number[] = [];
+    tb.members.forEach((m, i) => { if (m.gender === g && movable(m)) candidates.push(i); });
+    if (candidates.length === 0) continue;
+    const ib = candidates[Math.floor(Math.random() * candidates.length)];
+
+    swapPlayers(ta, ia, tb, ib, pvById);
+    const next = cost(teams);
+    const delta = next - cur;
+    if (delta <= 0 || Math.random() < Math.exp(-delta / T)) {
+      cur = next;
+      if (cur < bestCost) {
+        bestCost = cur;
+        bestGroups = teams.map(t => [...t.members]);
+      }
+    } else {
+      swapPlayers(ta, ia, tb, ib, pvById); // revert
+    }
+  }
+
+  // repartir de la meilleure solution rencontrée
+  for (let t = 0; t < K; t++) {
+    const fresh = emptyTeam(teams[t].catSums.length);
+    for (const p of bestGroups[t]) addToTeam(fresh, p, pvById.get(p.id)!);
+    teams[t] = fresh;
+  }
+  cur = bestCost;
+
+  // (b) Descente exhaustive: essaie tous les échanges jusqu'à ce qu'aucun n'améliore
+  let improved = true;
+  while (improved) {
+    improved = false;
+    for (let a = 0; a < K; a++) {
+      for (let b = a + 1; b < K; b++) {
+        const ta = teams[a], tb = teams[b];
+        for (let ia = 0; ia < ta.members.length; ia++) {
+          if (!movable(ta.members[ia])) continue;
+          for (let ib = 0; ib < tb.members.length; ib++) {
+            const pb = tb.members[ib];
+            if (pb.gender !== ta.members[ia].gender || !movable(pb)) continue;
+            swapPlayers(ta, ia, tb, ib, pvById);
+            const next = cost(teams);
+            if (next < cur - 1e-12) {
+              cur = next;
+              improved = true;
+            } else {
+              swapPlayers(ta, ia, tb, ib, pvById);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return cur;
 }
 
 // ---------------- Front helpers ----------------
